@@ -1,0 +1,60 @@
+<!-- Chatbot Widget com Tailwind CSS -->
+<div id="chatbot" class="fixed bottom-4 right-4 w-80 bg-white rounded-lg shadow-lg border border-gray-200 flex flex-col overflow-hidden">
+  <div class="bg-blue-600 text-white text-center py-2 font-bold">IA-CARLOS da Ubva</div>
+  <div id="messages" class="flex-1 p-4 space-y-2 overflow-y-auto h-64 bg-gray-50"></div>
+  <div class="flex items-center border-t border-gray-200 p-2 bg-white">
+    <input id="userInput" type="text" placeholder="Digite sua mensagem..." class="flex-1 px-3 py-2 rounded border border-gray-300 focus:outline-none focus:ring focus:border-blue-400" />
+    <button onclick="sendMessage()" class="ml-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">Enviar</button>
+  </div>
+</div>
+
+<script>
+let sessionId = null;
+async function createSession() {
+  const res = await fetch('http://localhost:4000/api/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Visitante' })
+  });
+  const data = await res.json();
+  sessionId = data.id;
+  loadMessages();
+}
+async function sendMessage() {
+  const input = document.getElementById('userInput');
+  const content = input.value;
+  if (!content) return;
+  await fetch('http://localhost:4000/api/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId,
+      role: 'user',
+      content,
+      contentType: 'text'
+    })
+  });
+  const botReply = 'Olá! Sou o IA-CARLOS da Ubva. Como posso ajudar?';
+  await fetch('http://localhost:4000/api/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId,
+      role: 'bot',
+      content: botReply,
+      contentType: 'text'
+    })
+  });
+  input.value = '';
+  loadMessages();
+}
+async function loadMessages() {
+  const res = await fetch(`http://localhost:4000/api/session/${sessionId}/messages`);
+  const messages = await res.json();
+  const messagesDiv = document.getElementById('messages');
+  messagesDiv.innerHTML = messages.map(msg =>
+    `<div class="${msg.role === 'user' ? 'text-right' : 'text-left'}"><span class="inline-block px-3 py-2 rounded ${msg.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}">${msg.role === 'user' ? 'Você' : 'Bot'}: ${msg.content}</span></div>`
+  ).join('');
+}
+window.onload = createSession;
+</script>

@@ -1,36 +1,153 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎨 ChatGPT Clone com Integração n8n
 
-## Getting Started
+Site estilo ChatGPT totalmente funcional com integração direta ao n8n para processamento de mensagens e arquivos.
 
-First, run the development server:
+## ✨ Características
+
+- 💬 Interface de chat moderna e responsiva
+- 🌓 Tema dark/light com alternância
+- 📤 Upload de arquivos (imagens, PDFs, documentos)
+- 🔗 Integração completa com webhooks n8n
+- 💾 Persistência de histórico e configurações
+- ⚡ Scroll automático e indicador de digitação
+- 🎯 Preview de imagens antes do envio
+- 🔐 Suporte a autenticação por token
+
+## 🚀 Como Usar
+
+### 1. Iniciar o projeto
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+O site estará disponível em `http://localhost:3000`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Configurar o n8n
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Clique no ícone de **configurações** (⚙️) no canto superior direito
+2. Preencha os campos:
+   - **Webhook URL do n8n**: URL do seu webhook (ex: `https://seu-n8n.com/webhook/chat`)
+   - **Token de Autenticação** (opcional): Bearer token se necessário
+   - **Nome do Chat**: Personalize o título do chat
 
-## Learn More
+### 3. Criar o Workflow no n8n
 
-To learn more about Next.js, take a look at the following resources:
+Configure um webhook no n8n que receba requisições no formato:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```json
+{
+  "message": "texto da mensagem",
+  "file": "base64_do_arquivo",
+  "fileName": "documento.pdf",
+  "fileType": "application/pdf",
+  "session_id": "uuid-da-sessao"
+}
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+E retorne uma resposta no formato:
 
-## Deploy on Vercel
+```json
+{
+  "type": "text",
+  "content": "Resposta do assistente"
+}
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Ou para imagens:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```json
+{
+  "type": "image",
+  "url": "https://url-da-imagem.com/imagem.png",
+  "content": "Descrição opcional"
+}
+```
+
+## 📁 Estrutura do Projeto
+
+```
+/srv/frontend/
+├── app/
+│   ├── page.tsx           # Página principal
+│   ├── layout.tsx         # Layout raiz
+│   └── globals.css        # Estilos globais
+├── components/
+│   ├── Chat.tsx           # Componente principal do chat
+│   ├── MessageBubble.tsx  # Balões de mensagem
+│   ├── FileUploader.tsx   # Upload de arquivos
+│   ├── SettingsModal.tsx  # Modal de configurações
+│   └── ui/                # Componentes shadcn/ui
+├── lib/
+│   ├── store.ts           # Estado global (Zustand)
+│   ├── types.ts           # Tipos TypeScript
+│   ├── n8n-service.ts     # Serviço de integração n8n
+│   └── utils.ts           # Utilitários
+└── package.json
+```
+
+## 🛠️ Tecnologias
+
+- **Next.js 15** - Framework React
+- **TypeScript** - Tipagem estática
+- **TailwindCSS** - Estilização
+- **shadcn/ui** - Componentes UI
+- **Zustand** - Gerenciamento de estado
+- **Framer Motion** - Animações
+- **Axios** - Requisições HTTP
+
+## 🔧 Personalização
+
+### Alterar cores do tema
+
+Edite o arquivo `/app/globals.css` para customizar as variáveis de cor.
+
+### Modificar tipos de arquivo aceitos
+
+Em `/components/FileUploader.tsx`, altere o array `validTypes`.
+
+### Ajustar o formato da requisição n8n
+
+Modifique `/lib/n8n-service.ts` para customizar o payload enviado.
+
+## 📝 Formato da API n8n
+
+### Requisição (POST)
+
+```typescript
+interface N8nRequest {
+  message?: string;        // Texto da mensagem
+  file?: string;          // Arquivo em base64
+  fileName?: string;      // Nome do arquivo
+  fileType?: string;      // MIME type
+  session_id: string;     // ID da sessão
+}
+```
+
+### Resposta (JSON)
+
+```typescript
+interface N8nResponse {
+  type: 'text' | 'image';
+  content?: string;       // Conteúdo textual
+  url?: string;          // URL da imagem (se type = 'image')
+  error?: string;        // Mensagem de erro (opcional)
+}
+```
+
+## 🐛 Solução de Problemas
+
+### Webhook não responde
+- Verifique se a URL do webhook está correta
+- Teste o webhook diretamente (ex: usando Postman)
+- Verifique os logs do n8n para erros
+
+### Arquivos não são enviados
+- Confirme que o tipo de arquivo é suportado
+- Verifique o tamanho (máximo 10MB por padrão)
+- Ajuste o limite em `/components/FileUploader.tsx`
+
+---
+
+Desenvolvido com ❤️ usando Next.js e n8n
