@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 export function SettingsModal() {
   const { config, updateConfig, clearMessages } = useChatStore();
   const [open, setOpen] = useState(false);
-  const webhookUrl = process.env.NEXT_PUBLIC_WEBHOOK_URL || '';
+  const [webhookUrl, setWebhookUrl] = useState(config.webhookUrl);
   const [authToken, setAuthToken] = useState(config.authToken || '');
   const [chatName, setChatName] = useState(config.chatName);
 
@@ -86,10 +86,11 @@ export function SettingsModal() {
             <label className="text-sm font-medium text-foreground">Webhook do n8n</label>
             <Input
               value={webhookUrl}
-              disabled
-              className="bg-muted text-muted-foreground border border-border"
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://n8n.easydev.com.br/webhook-test/ia-agent-ubva"
+              className="bg-input text-foreground border border-border"
             />
-            <p className="text-xs text-muted-foreground">URL do webhook do n8n está fixo e não pode ser alterado</p>
+            <p className="text-xs text-muted-foreground">URL do webhook do n8n para processamento das mensagens</p>
           </div>
 
           {/* Token de autenticação */}

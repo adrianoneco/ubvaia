@@ -24,12 +24,6 @@ app.prepare().then(() => {
   // Criar servidor HTTP
   const server = createServer(async (req, res) => {
     try {
-      // Se for requisição de upgrade do WebSocket, não processar pelo Next.js
-      if (req.url === '/ws' && req.headers.upgrade === 'websocket') {
-        // Deixar o WebSocketServer handle isso
-        return;
-      }
-      
       const parsedUrl = parse(req.url!, true);
       await handle(req, res, parsedUrl);
     } catch (err) {
@@ -44,17 +38,18 @@ app.prepare().then(() => {
     noServer: true
   });
 
-  // Upgrade para WebSocket
+  // Upgrade para WebSocket apenas no path /ws
   server.on('upgrade', (request, socket, head) => {
     const { pathname } = parse(request.url || '');
     
+    // Apenas interceptar nosso WebSocket em /ws
     if (pathname === '/ws') {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
-    } else {
-      socket.destroy();
     }
+    // Para outros paths (incluindo HMR do Next.js), não fazer nada
+    // O Next.js tem seus próprios handlers de upgrade
   });
 
   // Armazenar clientes conectados
@@ -111,7 +106,8 @@ app.prepare().then(() => {
     });
 
     clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
+      // Não enviar de volta para o remetente (evitar duplicação)
+      if (client !== sender && client.readyState === WebSocket.OPEN) {
         client.send(data);
       }
     });

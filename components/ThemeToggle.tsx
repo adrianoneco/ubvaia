@@ -1,42 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useChatStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const { theme, toggleTheme } = useChatStore();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    // Carregar tema salvo do localStorage
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
-    } else {
-      // Verificar preferência do sistema
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const defaultTheme = prefersDark ? 'dark' : 'light';
-      setTheme(defaultTheme);
-      applyTheme(defaultTheme);
-    }
-  }, []);
+    // Aplicar tema atual do store no DOM
+    applyTheme(theme);
+  }, [theme]);
 
-  const applyTheme = (newTheme: 'light' | 'dark') => {
+  const applyTheme = (currentTheme: 'light' | 'dark') => {
     const root = document.documentElement;
-    if (newTheme === 'dark') {
+    if (currentTheme === 'dark') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
     }
-  };
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    applyTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
   };
 
   // Evitar flash de conteúdo não estilizado

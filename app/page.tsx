@@ -4,6 +4,7 @@ import { useChatStore } from '@/lib/store';
 import { Chat } from '@/components/Chat';
 import { SettingsModal } from '@/components/SettingsModal';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { useEffect, useState } from 'react';
 
 export default function Home() {
@@ -11,33 +12,31 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
 
   return (
-    <div
-      className={`${theme === 'dark' ? 'dark' : ''} h-screen flex flex-col bg-background`}
-    >
+    <div className="h-screen flex flex-col bg-background">
       {/* Header */}
       <header className="border-b border-border px-4 py-3 bg-card text-card-foreground flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          {/* Use the project's existing logo asset but style it white via CSS filters */}
-          {/* Original logo with a subtle 3D background (layered card + shadow) */}
-          {/* Simple logo (3D background removed) */}
-          <span className="inline-flex items-center justify-center w-24 h-20">
-            {/* Elaborate round badge for the logo: gradient ring + inner circle for good contrast in dark/light */}
-            <div className="relative">
-              {/* Larger gradient ring with stronger shadow */}
-              <div className="rounded-full p-1 bg-transparent border border-zinc-100 dark:border-transparent dark:bg-transparent shadow-sm">
-                {/* Bigger inner circle; force a light background in dark mode so the logo stays legible */}
-                <div className="rounded-full bg-white dark:bg-white/95 w-16 h-16 flex items-center justify-center">
-                  <img src="/logo.png" alt="Logo" className="h-12 w-auto max-w-full" />
-                </div>
-              </div>
+          {/* Logo esfumado e minimalista */}
+          <div className="relative group">
+            <div className="relative w-20 h-20 flex items-center justify-center">
+              <img 
+                src="/logo.png" 
+                alt="Logo" 
+                className="w-16 h-16 object-contain filter blur-[0.5px] group-hover:blur-0 transition-all duration-500 brightness-105 contrast-110 group-hover:brightness-110 group-hover:scale-105" 
+              />
+              
+              {/* Efeito de glow sutil */}
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-sm"></div>
             </div>
-          </span>
+          </div>
+          
           <h1 className="text-xl font-semibold text-foreground">
             {config.chatName}
           </h1>
         </div>
         <div className="flex items-center space-x-2">
           <SettingsModal />
+          <ThemeToggle />
         </div>
       </header>
 

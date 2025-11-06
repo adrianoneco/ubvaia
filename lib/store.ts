@@ -6,7 +6,7 @@ import { ChatState, Message, N8nConfig } from './types';
 
 // Configuração padrão
 const defaultConfig: N8nConfig = {
-  webhookUrl: 'https://n8n.easydev.com.br/webhook/ia-agent-ubva',
+  webhookUrl: 'https://n8n.easydev.com.br/webhook-test/ia-agent-ubva',
   authToken: '',
   chatName: 'Carlos IA',
   sessionId: uuidv4(),

@@ -8,10 +8,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { N8nService } from '@/lib/n8n-service';
 import { MessageBubble } from './MessageBubble';
 import { FileUploader } from './FileUploader';
+import { AudioRecorder } from './AudioRecorder';
+import { MicrophonePermissionBanner } from './MicrophonePermissionBanner';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
-import { ThemeToggle } from './ThemeToggle';
+import { Message } from '@/lib/types';
 
 const Sidebar = ({
   isExpanded,
@@ -188,6 +190,8 @@ export function Chat() {
   // Sidebar is controlled by `isSidebarExpanded`
   const [inputMessage, setInputMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedAudio, setSelectedAudio] = useState<Blob | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
@@ -271,7 +275,7 @@ export function Chat() {
   };
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() && !selectedFile) return;
+    if (!inputMessage.trim() && !selectedFile && !selectedAudio) return;
     if (!config.webhookUrl) {
       alert('Configure o webhook do n8n antes de enviar mensagens');
       return;
@@ -283,7 +287,25 @@ export function Chat() {
     setLoading(true);
 
     try {
-      if (selectedFile) {
+      if (selectedAudio) {
+        // Enviar áudio
+        const audioFile = new File([selectedAudio], 'audio.wav', { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(selectedAudio);
+
+        addMessageAndBroadcast({
+          role: 'user',
+          content: inputMessage || 'Áudio enviado',
+          contentType: 'audio',
+          audioUrl: audioUrl,
+          sessionId: currentSessionId,
+          replyTo: replyingTo?.id,
+        });
+
+        const response = await service.sendFile(audioFile, inputMessage);
+        handleN8nResponse(response);
+        setSelectedAudio(null);
+        setInputMessage('');
+      } else if (selectedFile) {
         const isImage = selectedFile.type.startsWith('image/');
         const fileUrl = URL.createObjectURL(selectedFile);
 
@@ -294,6 +316,7 @@ export function Chat() {
           imageUrl: isImage ? fileUrl : undefined,
           fileName: !isImage ? selectedFile.name : undefined,
           sessionId: currentSessionId,
+          replyTo: replyingTo?.id,
         });
 
         const response = await service.sendFile(selectedFile, inputMessage);
@@ -307,6 +330,7 @@ export function Chat() {
           content: inputMessage,
           contentType: 'text',
           sessionId: currentSessionId,
+          replyTo: replyingTo?.id,
         });
         const response = await service.sendMessage(inputMessage);
         handleN8nResponse(response);
@@ -314,7 +338,16 @@ export function Chat() {
       }
     } finally {
       setLoading(false);
+      setReplyingTo(null); // Limpar estado de resposta
     }
+  };
+
+  const handleReply = (message: Message) => {
+    setReplyingTo(message);
+  };
+
+  const handleCancelReply = () => {
+    setReplyingTo(null);
   };
 
   const handleN8nResponse = (response: any) => {
@@ -392,9 +425,6 @@ export function Chat() {
       )}
       {/* Topbar com botão de login mais afastado do topo/dark mode */}
       <div className="fixed top-6 right-40 z-50 flex items-center gap-4">
-        {/* Theme Toggle */}
-        <ThemeToggle />
-        
         {/* Botões de Login e Cadastro ocultos */}
         {isAuthenticated && (
           <button
@@ -513,8 +543,9 @@ export function Chat() {
               </div>
             ) : (
               <>
+                <MicrophonePermissionBanner />
                 {sessionMessages.map((message, idx) => (
-                  <MessageBubble key={idx} message={message} />
+                  <MessageBubble key={idx} message={message} onReply={handleReply} />
                 ))}
                 <div ref={messagesEndRef} />
               </>
@@ -526,19 +557,32 @@ export function Chat() {
         <div
           className="border border-border px-4 py-3 bg-card/90 dark:bg-card/90 flex items-center gap-3 z-30 rounded-lg shadow-xl backdrop-blur-sm transition-all duration-200 mt-2"
         >
-          <FileUploader
-            onFileSelect={setSelectedFile}
-            disabled={isLoading}
-            clearFile={clearFile}
-          />
           <Button
             onClick={handleNewSession}
-            className="bg-gradient-to-r from-primary to-[#4ABF90] text-white px-2 py-1 rounded shadow text-xs mr-2"
+            className="bg-gradient-to-r from-primary to-[#4ABF90] text-white px-2 py-1 rounded shadow text-xs"
             title="Nova Conversa"
           >
             Nova Conversa
           </Button>
           <div className="flex-1">
+            {replyingTo && (
+              <div className="mb-2 p-2 bg-muted/50 rounded-md border-l-4 border-primary flex items-center justify-between">
+                <div className="flex-1">
+                  <span className="text-xs text-muted-foreground">Respondendo a:</span>
+                  <p className="text-sm truncate">{replyingTo.content}</p>
+                </div>
+                <button
+                  onClick={handleCancelReply}
+                  className="ml-2 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Cancelar resposta"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            )}
             <Input
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
@@ -553,9 +597,18 @@ export function Chat() {
               className="w-full bg-input text-foreground border border-border rounded-lg shadow-sm px-4 py-2"
             />
           </div>
+          <FileUploader
+            onFileSelect={setSelectedFile}
+            disabled={isLoading}
+            clearFile={clearFile}
+          />
+          <AudioRecorder
+            onAudioRecorded={setSelectedAudio}
+            disabled={isLoading}
+          />
           <Button
             onClick={handleSendMessage}
-            disabled={isLoading || (!inputMessage.trim() && !selectedFile)}
+            disabled={isLoading || (!inputMessage.trim() && !selectedFile && !selectedAudio)}
             className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md shadow-sm"
           >
             Enviar

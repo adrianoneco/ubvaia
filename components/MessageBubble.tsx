@@ -8,10 +8,12 @@ import Image from 'next/image';
 
 interface MessageBubbleProps {
   message: Message;
+  onReply?: (message: Message) => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onReply }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const isAssistant = message.role === 'assistant';
   // Formatar data e hora juntas (apenas uma linha)
   const dateStr = message.timestamp
     ? new Date(message.timestamp).toLocaleString('pt-BR', {
@@ -41,7 +43,33 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         {message.contentType === 'text' && (
           <>
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
-            <span className="block text-xs mt-2 text-right" style={{ color: '#444' }}>{dateStr}</span>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              {isAssistant && onReply && (
+                <button
+                  onClick={() => onReply(message)}
+                  className="text-xs px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-secondary-foreground transition-colors duration-200 flex items-center gap-1"
+                  title="Responder a esta mensagem"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                  </svg>
+                  Responder
+                </button>
+              )}
+            </div>
           </>
         )}
 
@@ -63,7 +91,33 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 unoptimized
               />
             </div>
-            {/* Removido timestamp extra */}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              {isAssistant && onReply && (
+                <button
+                  onClick={() => onReply(message)}
+                  className="text-xs px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-secondary-foreground transition-colors duration-200 flex items-center gap-1"
+                  title="Responder a esta mensagem"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                  </svg>
+                  Responder
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -91,6 +145,81 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 {message.content}
               </p>
             )}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              {isAssistant && onReply && (
+                <button
+                  onClick={() => onReply(message)}
+                  className="text-xs px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-secondary-foreground transition-colors duration-200 flex items-center gap-1"
+                  title="Responder a esta mensagem"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                  </svg>
+                  Responder
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Conteúdo de áudio */}
+        {message.contentType === 'audio' && message.audioUrl && (
+          <div className="space-y-2">
+            {message.content && (
+              <p className="whitespace-pre-wrap break-words mb-2">
+                {message.content}
+              </p>
+            )}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <audio
+                controls
+                className="w-full max-w-sm"
+                preload="metadata"
+              >
+                <source src={message.audioUrl} type="audio/wav" />
+                Seu navegador não suporta a reprodução de áudio.
+              </audio>
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              {isAssistant && onReply && (
+                <button
+                  onClick={() => onReply(message)}
+                  className="text-xs px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-secondary-foreground transition-colors duration-200 flex items-center gap-1"
+                  title="Responder a esta mensagem"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                  </svg>
+                  Responder
+                </button>
+              )}
+            </div>
           </div>
         )}
 

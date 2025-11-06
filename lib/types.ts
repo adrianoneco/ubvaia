@@ -2,7 +2,7 @@
 
 export type MessageRole = 'user' | 'assistant';
 
-export type MessageContentType = 'text' | 'image' | 'file';
+export type MessageContentType = 'text' | 'image' | 'file' | 'audio';
 
 export interface Message {
   id: string;
@@ -12,6 +12,8 @@ export interface Message {
   timestamp: Date;
   imageUrl?: string;
   fileName?: string;
+  audioUrl?: string;
+  replyTo?: string;
   sessionId?: string;
 }
 
