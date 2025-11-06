@@ -47,6 +47,7 @@ export interface ChatState {
   sessions: string[];
   currentSessionId: string;
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
+  addMessageFromWebSocket: (message: Message) => void;
   setLoading: (loading: boolean) => void;
   updateConfig: (config: Partial<N8nConfig>) => void;
   toggleTheme: () => void;

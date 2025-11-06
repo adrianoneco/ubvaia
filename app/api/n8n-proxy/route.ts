@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Server-side webhook URL: prefer environment variable, fallback to localhost
-const N8N_WEBHOOK_URL = 'http://n8n:5678/webhook/ia-agent';
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

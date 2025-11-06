@@ -6,7 +6,7 @@ import { ChatState, Message, N8nConfig } from './types';
 
 // Configuração padrão
 const defaultConfig: N8nConfig = {
-  webhookUrl: 'http://localhost:5678/webhook/ia-agent',
+  webhookUrl: 'https://n8n.easydev.com.br/webhook/ia-agent-ubva',
   authToken: '',
   chatName: 'Carlos IA',
   sessionId: uuidv4(),
@@ -14,13 +14,17 @@ const defaultConfig: N8nConfig = {
 
 export const useChatStore = create<ChatState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       messages: [],
       isLoading: false,
       config: defaultConfig,
-      theme: 'dark',
+      theme: 'dark' as const,
+      // Sessões de conversa
+      sessions: [defaultConfig.sessionId],
+      currentSessionId: defaultConfig.sessionId,
+      sessionNames: { [defaultConfig.sessionId]: 'Sessão 1' },
 
-      addMessage: (message) =>
+      addMessage: (message: Omit<Message, 'id' | 'timestamp'>) =>
         set((state) => ({
           messages: [
             ...state.messages,
@@ -32,28 +36,43 @@ export const useChatStore = create<ChatState>()(
             },
           ],
         })),
-      // Sessões de conversa
-      sessions: [defaultConfig.sessionId],
-      currentSessionId: defaultConfig.sessionId,
-      sessionNames: { [defaultConfig.sessionId]: 'Sessão 1' },
+
+      // Adicionar mensagem recebida via WebSocket (já possui id e timestamp)
+      addMessageFromWebSocket: (message: Message) =>
+        set((state) => {
+          // Verificar se a mensagem já existe
+          const exists = state.messages.some(m => m.id === message.id);
+          if (exists) {
+            return state;
+          }
+          return {
+            messages: [...state.messages, message],
+          };
+        }),
+
       addSession: (sessionId: string) =>
         set((state) => ({
           sessions: [...state.sessions, sessionId],
           sessionNames: { ...state.sessionNames, [sessionId]: `Sessão ${state.sessions.length + 1}` },
         })),
+
       setCurrentSession: (sessionId: string) => set({ currentSessionId: sessionId }),
+
       getMessagesBySession: (sessionId: string) => {
-        const state = useChatStore.getState();
+        const state = get();
         return state.messages.filter((msg) => msg.sessionId === sessionId);
       },
+
       clearSessionMessages: (sessionId: string) =>
         set((state) => ({
           messages: state.messages.filter((msg) => msg.sessionId !== sessionId),
         })),
+
       renameSession: (sessionId: string, name: string) =>
         set((state) => ({
           sessionNames: { ...state.sessionNames, [sessionId]: name },
         })),
+
       deleteSession: (sessionId: string) =>
         set((state) => {
           const filteredSessions = state.sessions.filter((id) => id !== sessionId);
@@ -71,9 +90,9 @@ export const useChatStore = create<ChatState>()(
           };
         }),
 
-      setLoading: (loading) => set({ isLoading: loading }),
+      setLoading: (loading: boolean) => set({ isLoading: loading }),
 
-      updateConfig: (newConfig) =>
+      updateConfig: (newConfig: Partial<N8nConfig>) =>
         set((state) => ({
           config: { ...state.config, ...newConfig },
         })),

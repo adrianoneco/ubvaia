@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 export function SettingsModal() {
   const { config, updateConfig, clearMessages } = useChatStore();
   const [open, setOpen] = useState(false);
-  const webhookUrl = 'https://n8n.easydev.com.br/webhook/Ia-agent-ubva';
+  const webhookUrl = process.env.NEXT_PUBLIC_WEBHOOK_URL || '';
   const [authToken, setAuthToken] = useState(config.authToken || '');
   const [chatName, setChatName] = useState(config.chatName);
 

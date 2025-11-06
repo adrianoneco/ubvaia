@@ -10,6 +10,8 @@ import { MessageBubble } from './MessageBubble';
 import { FileUploader } from './FileUploader';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { useWebSocket } from '@/lib/hooks/useWebSocket';
+import { ThemeToggle } from './ThemeToggle';
 
 const Sidebar = ({
   isExpanded,
@@ -203,6 +205,7 @@ export function Chat() {
     isLoading,
     config,
     addMessage,
+    addMessageFromWebSocket,
     setLoading,
     sessions,
     currentSessionId,
@@ -214,6 +217,14 @@ export function Chat() {
     renameSession,
     deleteSession,
   } = useChatStore();
+
+  // WebSocket para sincronização em tempo real
+  const { isConnected, send: wsSend } = useWebSocket((message) => {
+    if (message.type === 'message' && message.data) {
+      // Adicionar mensagem recebida via WebSocket
+      addMessageFromWebSocket(message.data);
+    }
+  });
 
   // Cria uma sessão automaticamente ao entrar, se não houver nenhuma
   useEffect(() => {
@@ -238,6 +249,27 @@ export function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Função para adicionar mensagem e fazer broadcast via WebSocket
+  const addMessageAndBroadcast = (message: any) => {
+    const fullMessage = {
+      ...message,
+      id: uuidv4(),
+      timestamp: new Date(),
+      sessionId: message.sessionId || currentSessionId,
+    };
+    
+    // Adicionar localmente
+    addMessage(message);
+    
+    // Broadcast via WebSocket
+    if (isConnected) {
+      wsSend({
+        type: 'message',
+        data: fullMessage,
+      });
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!inputMessage.trim() && !selectedFile) return;
     if (!config.webhookUrl) {
@@ -255,7 +287,7 @@ export function Chat() {
         const isImage = selectedFile.type.startsWith('image/');
         const fileUrl = URL.createObjectURL(selectedFile);
 
-        addMessage({
+        addMessageAndBroadcast({
           role: 'user',
           content: inputMessage || 'Arquivo enviado',
           contentType: isImage ? 'image' : 'file',
@@ -270,7 +302,7 @@ export function Chat() {
         setInputMessage('');
         setClearFile(true);
       } else {
-        addMessage({
+        addMessageAndBroadcast({
           role: 'user',
           content: inputMessage,
           contentType: 'text',
@@ -287,7 +319,7 @@ export function Chat() {
 
   const handleN8nResponse = (response: any) => {
     if (response.error) {
-      addMessage({
+      addMessageAndBroadcast({
         role: 'assistant',
         content: response.error,
         contentType: 'text',
@@ -297,7 +329,7 @@ export function Chat() {
     }
 
     if (response.type === 'image' && response.url) {
-      addMessage({
+      addMessageAndBroadcast({
         role: 'assistant',
         content: response.content || '',
         contentType: 'image',
@@ -305,7 +337,7 @@ export function Chat() {
         sessionId: currentSessionId,
       });
     } else {
-      addMessage({
+      addMessageAndBroadcast({
         role: 'assistant',
         content: typeof response === 'string' ? response : (response.content || response.output || 'Resposta recebida do n8n'),
         contentType: 'text',
@@ -360,6 +392,9 @@ export function Chat() {
       )}
       {/* Topbar com botão de login mais afastado do topo/dark mode */}
       <div className="fixed top-6 right-40 z-50 flex items-center gap-4">
+        {/* Theme Toggle */}
+        <ThemeToggle />
+        
         {/* Botões de Login e Cadastro ocultos */}
         {isAuthenticated && (
           <button

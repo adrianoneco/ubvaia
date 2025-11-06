@@ -2,10 +2,10 @@ import type { Request, Response } from 'express';
 // Simple Express HTTP API for chat bot integration
 // Run: npm install express cors
 
-const express = require('express');
-const cors = require('cors');
-import { saveMessage, saveSession, getMessagesBySession } from './session-api';
+import express from 'express';
+import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
+import { getMessagesBySession, saveMessage, saveSession } from './lib/session-api';
 
 const app = express();
 app.use(cors());
