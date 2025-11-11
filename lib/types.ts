@@ -9,7 +9,8 @@ export interface Message {
   role: MessageRole;
   content: string;
   contentType: MessageContentType;
-  timestamp: Date;
+  // timestamp may be null when the DB did not provide a date
+  timestamp: Date | null;
   imageUrl?: string;
   fileName?: string;
   audioUrl?: string;

@@ -97,7 +97,24 @@ export function useWebSocket(onMessage?: (message: WSMessage) => void): UseWebSo
       };
 
       ws.current.onerror = (error) => {
-        console.error('❌ Erro no WebSocket:', error);
+        if (error instanceof Event && error.target instanceof WebSocket) {
+          console.error('❌ Erro no WebSocket:', {
+            url: error.target.url || 'URL desconhecida',
+            readyState: error.target.readyState ?? 'Estado desconhecido',
+            message: 'WebSocket error event',
+          });
+        } else if (error instanceof Error) {
+          console.error('❌ Erro no WebSocket:', {
+            message: error.message || 'Erro desconhecido',
+            stack: error.stack || 'Sem stack trace',
+            rawError: error,
+          });
+        } else {
+          console.error('❌ Erro no WebSocket:', {
+            message: 'Erro desconhecido',
+            rawError: error,
+          });
+        }
         isConnecting.current = false;
       };
 

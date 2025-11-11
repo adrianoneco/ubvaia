@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { saveSession } from '../../../lib/session-api';
+import { saveSession, getAllSessionsWithMessages } from '../../../lib/session-api';
 
 export async function POST(req: Request) {
   try {
@@ -13,6 +13,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ id, name });
   } catch (err: any) {
     console.error('Error in /api/session:', err);
+    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+  }
+}
+
+// GET: retorna todas as sessões salvas
+export async function GET() {
+  try {
+    // Retorna sessões já com as últimas 20 mensagens
+    const sessions = await getAllSessionsWithMessages(20);
+    return NextResponse.json(sessions);
+  } catch (err: any) {
+    console.error('Error in GET /api/session:', err);
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

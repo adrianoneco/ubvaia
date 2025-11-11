@@ -44,6 +44,7 @@ export const useChatStore = create<ChatState>()(
                   role: msg.role,
                   content: msg.content,
                   contentType: msg.contentType || 'text',
+                  imageUrl: msg.imageUrl || undefined,
                 }),
               });
             } catch (e) {

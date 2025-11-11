@@ -15,6 +15,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export function SettingsModal() {
+  // Velocidade de digitação
+  const [typingSpeed, setTypingSpeed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('typingSpeed');
+      return saved ? Number(saved) : 30;
+    }
+    return 30;
+  });
+
+  const handleTypingSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = Number(e.target.value);
+    if (value < 10) value = 10; // Enforce minimum limit
+    if (value > 200) value = 200; // Enforce maximum limit
+    setTypingSpeed(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('typingSpeed', String(value));
+    }
+  };
   const { config, updateConfigServer, clearMessages } = useChatStore();
   const [open, setOpen] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState(config.webhookUrl);
@@ -71,6 +89,19 @@ export function SettingsModal() {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
+          {/* Velocidade de digitação */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Velocidade da digitação (ms por caractere)</label>
+            <Input
+              type="number"
+              min={10}
+              max={200}
+              value={typingSpeed}
+              onChange={handleTypingSpeedChange}
+              className="bg-input text-foreground border border-border w-32"
+            />
+            <p className="text-xs text-muted-foreground">Quanto menor o valor, mais rápido a digitação da resposta da assistente.</p>
+          </div>
           {/* Nome do Chat */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Nome do Chat</label>
@@ -80,35 +111,6 @@ export function SettingsModal() {
               placeholder="Carlos IA"
               className="bg-input text-foreground border border-border"
             />
-          </div>
-
-          {/* Webhook URL editável */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Webhook do n8n</label>
-            <Input
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://n8n.easydev.com.br/webhook-test/ia-agent-ubva"
-              className="bg-input text-foreground border border-border"
-            />
-            <p className="text-xs text-muted-foreground">URL do webhook do n8n para processamento das mensagens</p>
-          </div>
-
-          {/* Token de autenticação */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              Token de Autenticação (opcional)
-            </label>
-            <Input
-              value={authToken}
-              onChange={(e) => setAuthToken(e.target.value)}
-              placeholder="Bearer token..."
-              type="password"
-              className="bg-input text-foreground border border-border"
-            />
-            <p className="text-xs text-muted-foreground">
-              Token de segurança se o webhook n8n exigir autenticação
-            </p>
           </div>
 
           {/* ID da Sessão */}

@@ -6,8 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useChatStore } from '@/lib/store';
 import { Message } from '@/lib/types';
+import { MessageBubble } from '@/components/MessageBubble';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
+import { cn } from '@/lib/utils';
+import { parseDbTimestamp, formatToSaoPaulo } from '@/server/datetime';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { RefreshCw } from 'lucide-react';
+import { SortAsc, SortDesc } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+  DialogHeader,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import WebhookPanel from '@/app/admin/webhook-panel/page';
 
 interface SessionData {
   sessionId: string;
@@ -23,6 +38,12 @@ export default function AdminDashboard() {
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [startDate, setStartDate] = useState<string | null>(null);
+  const [endDate, setEndDate] = useState<string | null>(null);
+  const [showWebhookModal, setShowWebhookModal] = useState(false);
+  const [showPeriodPicker, setShowPeriodPicker] = useState(false);
   
   const store = useChatStore();
 
@@ -44,31 +65,80 @@ export default function AdminDashboard() {
     }
     setIsAuthenticated(true);
 
+    // Predefinir o período para HOJE por padrão (usuário pode alterar)
+    try {
+      if (!startDate && !endDate) {
+        const today = new Date();
+        const iso = today.toISOString().slice(0, 10);
+        setStartDate(iso);
+        setEndDate(iso);
+      }
+    } catch (e) {
+      // ignore date errors
+    }
+
     // Carregar todas as sessões
     loadSessions();
+
+    // Polling periódido para manter dashboard sincronizado (além do websocket)
+    const interval = setInterval(() => {
+      loadSessions().catch((e) => console.error('Erro no polling de sessões:', e));
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [router]);
 
-  const loadSessions = () => {
-    const allSessions = store.sessions || [];
-    const sessionNames = store.sessionNames || {};
-    const allMessages = store.messages || [];
-
-    const sessionsData: SessionData[] = allSessions.map(sessionId => {
-      const sessionMessages = allMessages.filter(msg => msg.sessionId === sessionId);
-      const lastMessage = sessionMessages[sessionMessages.length - 1];
-      
-      return {
-        sessionId,
-        sessionName: sessionNames[sessionId] || `Sessão ${sessionId.slice(0, 8)}`,
-        messages: sessionMessages,
-        messageCount: sessionMessages.length,
-        lastActivity: lastMessage?.timestamp ? new Date(lastMessage.timestamp) : new Date(),
-      };
-    });
-
-    // Ordenar por última atividade
-    sessionsData.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
-    setSessions(sessionsData);
+  const loadSessions = async () => {
+    try {
+      const res = await fetch('/api/session');
+      const backendSessions = await res.json();
+      const sessionNames = store.sessionNames || {};
+      // Normaliza sessões e mensagens já recebidas
+      const sessionsData: SessionData[] = backendSessions.map((session: any) => {
+        const sessionId = session.id;
+        const sessionMessages: Message[] = (Array.isArray(session.messages) ? session.messages : []).map((m: any) => {
+          // Aceita image_url (backend) ou imageUrl (frontend)
+          let imageUrl = m.imageUrl || m.image_url || undefined;
+          let contentType = m.contentType || m.content_type || 'text';
+          // Se vier base64, converte para formato aceito pelo <Image>
+          if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+            // Já está em formato base64, só garantir que é string
+            contentType = 'image';
+          } else if (imageUrl && typeof imageUrl === 'string' && imageUrl.match(/^([A-Za-z0-9+/=]+)$/)) {
+            // Se vier só o base64 puro, prefixa
+            imageUrl = `data:image/png;base64,${imageUrl}`;
+            contentType = 'image';
+          }
+          return {
+            id: m.id || m._id || String(Math.random()),
+            role: m.role || m.sender || 'assistant',
+            content: m.content || m.text || '',
+            contentType,
+            timestamp: parseDbTimestamp(m.timestamp || m.created_at || m.createdAt),
+            imageUrl,
+            fileName: m.fileName || m.file_name,
+            sessionId: m.sessionId || m.session_id || sessionId,
+          };
+        });
+        const lastMessage = sessionMessages[sessionMessages.length - 1];
+        return {
+          sessionId,
+          sessionName: session.name || sessionNames[sessionId] || `Sessão ${sessionId.slice(0, 8)}`,
+          messages: sessionMessages,
+          messageCount: sessionMessages.length,
+          lastActivity: lastMessage?.timestamp ? (lastMessage.timestamp instanceof Date ? lastMessage.timestamp : new Date(lastMessage.timestamp)) : new Date(0),
+        };
+      });
+      // Ordenar por última atividade conforme sortOrder
+      sessionsData.sort((a, b) => {
+        return sortOrder === 'desc'
+          ? b.lastActivity.getTime() - a.lastActivity.getTime()
+          : a.lastActivity.getTime() - b.lastActivity.getTime();
+      });
+      setSessions(sessionsData);
+    } catch (err) {
+      console.error('Erro ao carregar sessões do backend:', err);
+    }
   };
 
   const handleLogout = () => {
@@ -77,10 +147,41 @@ export default function AdminDashboard() {
     router.push('/admin');
   };
 
-  const filteredSessions = sessions.filter(session => 
-    session.sessionName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    session.sessionId.toLowerCase().includes(searchTerm.toLowerCase())
+  // Garantir ordenação: última atividade primeiro
+  sessions.sort((a, b) => (
+    sortOrder === 'desc' ? b.lastActivity.getTime() - a.lastActivity.getTime() : a.lastActivity.getTime() - b.lastActivity.getTime()
+  ));
+
+  const filteredSessions = sessions.filter(session => {
+    const matchesText = session.sessionName.toLowerCase().includes(searchTerm.toLowerCase()) || session.sessionId.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesText) return false;
+    // If a date range is chosen, include sessions that have at least one message inside the period
+    if (startDate || endDate) {
+      const s = startDate ? new Date(startDate) : null;
+      if (s) s.setHours(0,0,0,0);
+      const e = endDate ? new Date(endDate) : null;
+      if (e) e.setHours(23,59,59,999);
+      const hasInRange = session.messages.some((m) => {
+        if (!m.timestamp) return false;
+        const t = new Date(m.timestamp);
+        if (s && t < s) return false;
+        if (e && t > e) return false;
+        return true;
+      });
+      if (!hasInRange) return false;
+    }
+    return true;
+  });
+
+  // Build list of available dates (YYYY-MM-DD) that have at least one message
+  const availableDatesSet = new Set(
+    sessions
+      .flatMap((s) => s.messages)
+      .map((m) => (m.timestamp ? new Date(m.timestamp).toISOString().slice(0, 10) : null))
+      .filter(Boolean) as string[]
   );
+  const availableDatesAsc = Array.from(availableDatesSet).sort((a, b) => (a < b ? -1 : 1)); // oldest -> newest
+  const availableDatesDesc = Array.from(availableDatesSet).sort((a, b) => (a < b ? 1 : -1)); // newest -> oldest
 
   const selectedSessionData = selectedSession 
     ? sessions.find(s => s.sessionId === selectedSession)
@@ -134,6 +235,81 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                if (isSyncing) return;
+                setIsSyncing(true);
+                try {
+                  await loadSessions();
+                } catch (e) {
+                  console.error('Erro ao sincronizar sessões:', e);
+                } finally {
+                  setIsSyncing(false);
+                }
+              }}
+              className="border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+              aria-label="Sincronizar sessões"
+            >
+              {isSyncing ? (
+                <svg className="w-4 h-4 animate-spin mr-2 inline-block" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 mr-2 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-2.64-6.36" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 3v6h-6" />
+                </svg>
+              )}
+              Sincronizar
+            </Button>
+            {/* Sort toggle: newest/oldest */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                const newOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+                setSortOrder(newOrder);
+                // re-sort current sessions according to new order
+                setSessions((prev) => [...prev].sort((a,b) => (
+                  newOrder === 'desc' ? b.lastActivity.getTime() - a.lastActivity.getTime() : a.lastActivity.getTime() - b.lastActivity.getTime()
+                )));
+              }}
+              className="border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+              title={sortOrder === 'desc' ? 'Ordenar: do mais novo ao mais antigo' : 'Ordenar: do mais antigo ao mais novo'}
+              aria-label="Alternar ordenação por hora"
+            >
+              {sortOrder === 'desc' ? <SortDesc className="w-4 h-4 mr-2" /> : <SortAsc className="w-4 h-4 mr-2" />}
+              {sortOrder === 'desc' ? 'Mais recentes' : 'Mais antigos'}
+            </Button>
+            {/* Link rápido para o Painel de Webhook no menu (abre em popup) */}
+            <Button
+              variant="ghost"
+              onClick={() => setShowWebhookModal(true)}
+              className="text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+              aria-label="Abrir Painel de Webhook"
+            >
+              Painel de Webhook
+            </Button>
+            <Dialog open={showWebhookModal} onOpenChange={(open) => setShowWebhookModal(open)}>
+              <DialogContent className="max-w-5xl w-full">
+                  <DialogHeader>
+                    <DialogTitle>Painel de Webhook</DialogTitle>
+                    <DialogDescription>Configure e teste webhooks para eventos do sistema.</DialogDescription>
+                  </DialogHeader>
+                  <div className="mt-4 h-[75vh] max-h-[75vh] overflow-auto px-2">
+                    {/* make inner panel scrollable and fit the modal */}
+                    <div className="max-w-none mx-auto w-full">
+                      <WebhookPanel />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <DialogClose>
+                      <Button variant="outline">Fechar</Button>
+                    </DialogClose>
+                  </DialogFooter>
+                </DialogContent>
+            </Dialog>
             <ThemeToggle />
             <Button variant="outline" onClick={handleLogout} className="border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800">
               <svg
@@ -165,6 +341,9 @@ export default function AdminDashboard() {
                 <CardDescription className="text-slate-600 dark:text-zinc-400">
                   Clique em uma sessão para ver os detalhes
                 </CardDescription>
+                <div className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
+                  {filteredSessions.length} sessões encontradas
+                </div>
                 <div className="mt-4">
                   <input
                     type="text"
@@ -173,6 +352,103 @@ export default function AdminDashboard() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                   />
+
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                    {/* Single compact period picker (opens popup with start/end) */}
+                    <div className="sm:col-span-2 relative">
+                      <button
+                        onClick={() => setShowPeriodPicker((s) => !s)}
+                        className="w-full text-left px-3 py-2 border border-slate-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100"
+                        aria-haspopup="true"
+                        aria-expanded={showPeriodPicker}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm">
+                            {startDate || 'Início'} — {endDate || 'Fim'}
+                          </div>
+                          <svg className="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+                      </button>
+
+                      {showPeriodPicker && (
+                        <div className="absolute left-0 mt-2 w-[380px] z-30 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded shadow-lg p-3">
+                          <div className="flex gap-2">
+                            <div className="flex-1">
+                              <label className="text-xs text-slate-600 dark:text-zinc-400">Início</label>
+                              <select
+                                value={startDate || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value || null;
+                                  setStartDate(val);
+                                  // if endDate exists and is before the new start, reset endDate
+                                  if (val && endDate && endDate < val) {
+                                    setEndDate(null);
+                                  }
+                                }}
+                                className="w-full mt-1 px-2 py-2 border border-slate-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100"
+                              >
+                                <option value="">(todas)</option>
+                                {availableDatesAsc.length === 0 ? (
+                                  <option value="" disabled>Nenhuma data disponível</option>
+                                ) : (
+                                  availableDatesAsc.map((d) => (
+                                    <option key={d} value={d}>{d}</option>
+                                  ))
+                                )}
+                              </select>
+                            </div>
+                            <div className="flex-1">
+                              <label className="text-xs text-slate-600 dark:text-zinc-400">Fim</label>
+                              <select
+                                value={endDate || ''}
+                                onChange={(e) => setEndDate(e.target.value || null)}
+                                className="w-full mt-1 px-2 py-2 border border-slate-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100"
+                              >
+                                <option value="">(todas)</option>
+                                {availableDatesDesc.length === 0 ? (
+                                  <option value="" disabled>Nenhuma data disponível</option>
+                                ) : (
+                                  (startDate ? availableDatesDesc.filter(d => d >= startDate) : availableDatesDesc).map((d) => (
+                                    <option key={d} value={d}>{d}</option>
+                                  ))
+                                )}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between">
+                            <button
+                              onClick={() => { setStartDate(null); setEndDate(null); setShowPeriodPicker(false); }}
+                              className="text-sm text-slate-600 dark:text-zinc-400 px-3 py-1 rounded-md hover:bg-slate-50 dark:hover:bg-zinc-800"
+                            >
+                              Limpar
+                            </button>
+                            <div>
+                              <button
+                                onClick={() => setShowPeriodPicker(false)}
+                                className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                              >
+                                Aplicar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex sm:justify-start justify-end">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setStartDate(null);
+                          setEndDate(null);
+                        }}
+                        className="p-2 rounded flex items-center justify-center"
+                        title="Limpar filtros"
+                        aria-label="Limpar filtros"
+                      >
+                        <RefreshCw className="w-5 h-5 text-slate-700 dark:text-zinc-300" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -201,7 +477,7 @@ export default function AdminDashboard() {
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 dark:text-zinc-500">
-                          {session.lastActivity.toLocaleString('pt-BR')}
+                          {formatToSaoPaulo(session.lastActivity)}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1 font-mono">
                           ID: {session.sessionId.slice(0, 8)}...
@@ -221,7 +497,7 @@ export default function AdminDashboard() {
                 <CardHeader>
                   <CardTitle className="text-slate-900 dark:text-zinc-100">{selectedSessionData.sessionName}</CardTitle>
                   <CardDescription className="text-slate-600 dark:text-zinc-400">
-                    {selectedSessionData.messageCount} mensagens | Última atividade: {selectedSessionData.lastActivity.toLocaleString('pt-BR')}
+                    {selectedSessionData.messageCount} mensagens | Última atividade: {formatToSaoPaulo(selectedSessionData.lastActivity)}
                   </CardDescription>
                   <div className="mt-2">
                     <p className="text-xs text-slate-500 dark:text-zinc-500 font-mono">
@@ -237,84 +513,7 @@ export default function AdminDashboard() {
                       </p>
                     ) : (
                       selectedSessionData.messages.map((message, idx) => (
-                        <div
-                          key={idx}
-                          className={`p-4 rounded-lg ${
-                            message.role === 'user'
-                              ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 ml-8'
-                              : 'bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 mr-8'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center space-x-2">
-                              {message.role === 'user' ? (
-                                <svg
-                                  className="w-5 h-5 text-blue-600 dark:text-blue-400"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                                  />
-                                </svg>
-                              ) : (
-                                <svg
-                                  className="w-5 h-5 text-green-600 dark:text-green-400"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                                  />
-                                </svg>
-                              )}
-                              <span className="font-medium text-sm text-slate-900 dark:text-zinc-100">
-                                {message.role === 'user' ? 'Usuário' : 'Assistente'}
-                              </span>
-                            </div>
-                            <span className="text-xs text-slate-500 dark:text-zinc-500">
-                              {new Date(message.timestamp).toLocaleString('pt-BR')}
-                            </span>
-                          </div>
-                          <div className="text-sm whitespace-pre-wrap break-words text-slate-800 dark:text-zinc-200">
-                            {message.content}
-                          </div>
-                          {message.contentType === 'image' && message.imageUrl && (
-                            <div className="mt-2">
-                              <img
-                                src={message.imageUrl}
-                                alt="Imagem anexada"
-                                className="max-w-full h-auto rounded-lg border border-slate-300 dark:border-zinc-700"
-                              />
-                            </div>
-                          )}
-                          {message.contentType === 'file' && message.fileName && (
-                            <div className="mt-2 flex items-center space-x-2 text-xs text-slate-600 dark:text-zinc-400">
-                              <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                                />
-                              </svg>
-                              <span>Arquivo: {message.fileName}</span>
-                            </div>
-                          )}
-                        </div>
+                        <MessageBubble key={message.id || idx} message={message} />
                       ))
                     )}
                   </div>
@@ -346,6 +545,8 @@ export default function AdminDashboard() {
             )}
           </div>
         </div>
+
+        {/* Webhook panel removed from bottom—access it via header menu */}
       </div>
     </div>
   );

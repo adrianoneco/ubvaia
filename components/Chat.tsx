@@ -1,11 +1,12 @@
+"use client";
 // Componente principal do Chat
-'use client';
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import { useChatStore } from '@/lib/store';
 import { v4 as uuidv4 } from 'uuid';
 import { N8nService } from '@/lib/n8n-service';
+import { getWebhookConfig } from '@/lib/webhook-config';
 import { MessageBubble } from './MessageBubble';
 import { FileUploader } from './FileUploader';
 import { AudioRecorder } from './AudioRecorder';
@@ -14,6 +15,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { Message } from '@/lib/types';
+import { sendWebhookEvent } from '@/lib/webhook-config';
 
 const Sidebar = ({
   isExpanded,
@@ -179,6 +181,50 @@ const Sidebar = ({
 };
 
 export function Chat() {
+  // Estado para mostrar 'digitando...'
+  const [showTypingIndicator, setShowTypingIndicator] = useState(false);
+  // Efeito de digitação para respostas da assistente
+  const [typing, setTyping] = useState(false);
+  const [typedContent, setTypedContent] = useState('');
+  // Aliases para efeito de digitação
+  const typingText = typedContent;
+  const assistantTyping = typedContent;
+  // Velocidade de digitação em milissegundos
+  const typingSpeed = 30;
+
+  // Função para efeito de digitação (determinística)
+  const typeEffect = (fullText: string, callback?: () => void) => {
+    setShowTypingIndicator(true);
+    setTypedContent('');
+    setTyping(false);
+
+    setTimeout(() => {
+      setShowTypingIndicator(false);
+      setTyping(true);
+      setTypedContent('');
+
+      if (!fullText || fullText.length === 0) {
+        setTyping(false);
+        if (callback) callback();
+        return;
+      }
+
+      let i = 0;
+      const intervalMs = Math.max(typingSpeed, 10);
+
+      // Use setInterval and slice to deterministically set the visible text
+      const interval = setInterval(() => {
+        i++;
+        setTypedContent(fullText.slice(0, i));
+        if (i >= fullText.length) {
+          clearInterval(interval);
+          setTyping(false);
+          if (callback) callback();
+        }
+      }, intervalMs);
+
+    }, 900); // tempo do efeito 'digitando...'
+  };
   // Check localStorage for accepted policy on mount
   const [acceptedPolicy, setAcceptedPolicy] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -257,7 +303,16 @@ export function Chat() {
   // Scroll automático para última mensagem
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, showTypingIndicator, typing]);
+
+  useEffect(() => {
+    if (!typing) {
+      const inputBox = document.querySelector('input[placeholder="Digite seu pedido"]');
+      if (inputBox) {
+        (inputBox as HTMLInputElement).focus();
+      }
+    }
+  }, [typing]);
 
   // Função para adicionar mensagem e fazer broadcast via WebSocket
   const addMessageAndBroadcast = (message: any) => {
@@ -278,26 +333,27 @@ export function Chat() {
         data: fullMessage,
       });
     }
+    // Enviar evento webhook conforme configuração
+    sendWebhookEvent('SEND_MESSAGE', fullMessage);
   };
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() && !selectedFile && !selectedAudio) return;
-    if (!config.webhookUrl) {
-      alert('Configure o webhook do n8n antes de enviar mensagens');
-      return;
-    }
-
-    const service = n8nServiceRef.current;
-    if (!service) return;
-
     setLoading(true);
-
     try {
+      const webhookConfig = await getWebhookConfig();
+      // Accept multiple shapes returned by the admin panel / DB
+      const webhookUrl = webhookConfig?.baseUrl || webhookConfig?.webhook?.baseUrl || webhookConfig?.webhookUrl || webhookConfig?.webhook?.url || webhookConfig?.webhook?.baseUrl || null;
+      console.log('Resolved webhook config:', webhookConfig, '=> webhookUrl:', webhookUrl);
+      if (!webhookUrl) {
+        alert('Configure o webhook do n8n no painel de webhook antes de enviar mensagens');
+        return;
+      }
+      const service = new N8nService({ ...config, webhookUrl });
       if (selectedAudio) {
         // Enviar áudio
         const audioFile = new File([selectedAudio], 'audio.wav', { type: 'audio/wav' });
         const audioUrl = URL.createObjectURL(selectedAudio);
-
         addMessageAndBroadcast({
           role: 'user',
           content: inputMessage || 'Áudio enviado',
@@ -306,26 +362,60 @@ export function Chat() {
           sessionId: currentSessionId,
           replyTo: replyingTo?.id,
         });
-
-        const response = await service.sendFile(audioFile, inputMessage);
+        let response = await service.sendFile(audioFile, inputMessage);
+        // Fallback: if direct webhook call failed due to network/CORS, try server-side proxy
+        if (response?.error && typeof window !== 'undefined') {
+          try {
+            const prox = await fetch('/api/n8n-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ webhookUrl, file: await audioFile.arrayBuffer(), fileName: audioFile.name, fileType: audioFile.type, message: inputMessage, session_id: currentSessionId }),
+            });
+            const proxData = await prox.json();
+            response = proxData;
+          } catch (err) {
+            console.error('Fallback proxy failed:', err);
+          }
+        }
         handleN8nResponse(response);
         setSelectedAudio(null);
         setInputMessage('');
       } else if (selectedFile) {
         const isImage = selectedFile.type.startsWith('image/');
-        const fileUrl = URL.createObjectURL(selectedFile);
-
+        let imageBase64: string | undefined = undefined;
+        if (isImage) {
+          imageBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              resolve(reader.result as string);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(selectedFile);
+          });
+        }
         addMessageAndBroadcast({
           role: 'user',
           content: inputMessage || 'Arquivo enviado',
           contentType: isImage ? 'image' : 'file',
-          imageUrl: isImage ? fileUrl : undefined,
+          imageUrl: isImage ? imageBase64 : undefined,
           fileName: !isImage ? selectedFile.name : undefined,
           sessionId: currentSessionId,
           replyTo: replyingTo?.id,
         });
-
-        const response = await service.sendFile(selectedFile, inputMessage);
+        let response = await service.sendFile(selectedFile, inputMessage);
+        if (response?.error && typeof window !== 'undefined') {
+          try {
+            const prox = await fetch('/api/n8n-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ webhookUrl, file: await selectedFile.arrayBuffer(), fileName: selectedFile.name, fileType: selectedFile.type, message: inputMessage, session_id: currentSessionId }),
+            });
+            const proxData = await prox.json();
+            response = proxData;
+          } catch (err) {
+            console.error('Fallback proxy failed:', err);
+          }
+        }
         handleN8nResponse(response);
         setSelectedFile(null);
         setInputMessage('');
@@ -338,7 +428,20 @@ export function Chat() {
           sessionId: currentSessionId,
           replyTo: replyingTo?.id,
         });
-        const response = await service.sendMessage(inputMessage);
+        let response = await service.sendMessage(inputMessage);
+        if (response?.error && typeof window !== 'undefined') {
+          try {
+            const prox = await fetch('/api/n8n-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ webhookUrl, message: inputMessage, session_id: currentSessionId }),
+            });
+            const proxData = await prox.json();
+            response = proxData;
+          } catch (err) {
+            console.error('Fallback proxy failed:', err);
+          }
+        }
         handleN8nResponse(response);
         setInputMessage('');
       }
@@ -356,31 +459,51 @@ export function Chat() {
     setReplyingTo(null);
   };
 
-  const handleN8nResponse = (response: any) => {
+  const handleN8nResponse = async (response: any) => {
     if (response.error) {
-      addMessageAndBroadcast({
-        role: 'assistant',
-        content: response.error,
-        contentType: 'text',
-        sessionId: currentSessionId,
+      typeEffect(response.error, () => {
+        addMessageAndBroadcast({
+          role: 'assistant',
+          content: response.error,
+          contentType: 'text',
+          sessionId: currentSessionId,
+        });
       });
       return;
     }
 
     if (response.type === 'image' && response.url) {
+      let imageUrl = response.url;
+      // Se for blob, converte para base64
+      if (imageUrl.startsWith('blob:')) {
+        try {
+          const blob = await fetch(imageUrl).then(r => r.blob());
+          imageUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (err) {
+          console.error('Erro ao converter blob para base64:', err);
+        }
+      }
       addMessageAndBroadcast({
         role: 'assistant',
         content: response.content || '',
         contentType: 'image',
-        imageUrl: response.url,
+        imageUrl,
         sessionId: currentSessionId,
       });
     } else {
-      addMessageAndBroadcast({
-        role: 'assistant',
-        content: typeof response === 'string' ? response : (response.content || response.output || 'Resposta recebida do n8n'),
-        contentType: 'text',
-        sessionId: currentSessionId,
+      const text = typeof response === 'string' ? response : (response.content || response.output || 'Resposta recebida do n8n');
+      typeEffect(text, () => {
+        addMessageAndBroadcast({
+          role: 'assistant',
+          content: text,
+          contentType: 'text',
+          sessionId: currentSessionId,
+        });
       });
     }
   };
@@ -393,8 +516,63 @@ export function Chat() {
   clearSessionMessages(newSessionId);
   };
 
+  // Check localStorage for accepted policy on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const policyAccepted = localStorage.getItem('policyAccepted') === 'true';
+      setAcceptedPolicy(policyAccepted);
+    }
+  }, []);
+
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      :root {
+        --bold-text-color-light: #000;
+        --bold-text-color-dark: #fff;
+      }
+      span[style*="font-weight: bold"] {
+        color: var(--bold-text-color-light) !important;
+      }
+      .dark span[style*="font-weight: bold"] {
+        color: var(--bold-text-color-dark) !important;
+      }
+
+      @media (max-width: 414px) {
+        .new-conversation-button {
+          width: 40px;
+          height: 40px;
+          font-size: 0;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: var(--primary-color);
+          border-radius: 50%;
+          position: relative;
+        }
+        .new-conversation-button::before {
+          content: '+';
+          font-size: 24px;
+          color: white;
+          font-weight: bold;
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   return (
     <div className="flex h-full w-full pl-0">
+      {/* Render policy modal only if not accepted */}
       {!acceptedPolicy && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="bg-white dark:bg-card rounded-2xl shadow-2xl p-10 max-w-md w-full flex flex-col gap-8 border border-border text-gray-900 dark:text-white animate-fade-in">
@@ -541,14 +719,77 @@ export function Chat() {
         >
           {(sessions.length === 0 || !currentSessionId) ? null : (
             sessionMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full w-full">
-                <div className="mb-6 w-36 h-36 flex items-center justify-center rounded-xl bg-white/80 dark:bg-white/90 shadow">
-                  <img src="/logo.png" alt="Logo UBVA" className="w-28 h-28 object-contain" />
+              <div className="flex flex-col items-center justify-center h-full w-full pt-8 pb-4">
+                <div className="mb-2 w-28 h-28 flex items-center justify-center rounded-xl bg-white/80 dark:bg-white/90 shadow">
+                  <img src="/logo.png" alt="Logo UBVA" className="w-20 h-20 object-contain" />
                 </div>
-                <span className="text-2xl font-bold text-primary text-center">
+                <span className="text-xl font-bold text-primary text-center mb-2">
                   Bem-vindo à Carlos-IA da UBVA!<br />
-                  Seu assistente inteligente está pronto para ajudar você a transformar conversas em soluções.
+                  <span className="text-base font-normal text-muted-foreground">Seu assistente inteligente está pronto para ajudar você a transformar conversas em soluções.</span>
                 </span>
+                <div className="flex flex-col items-center gap-2 mt-4 w-full max-w-lg">
+                  <span className="text-base font-semibold text-muted-foreground mb-1">Sugestões rápidas:</span>
+                  <button
+                    className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
+                    onClick={() => {
+                      const pergunta = 'Sugira os melhores tipos de vidro para projetos arquitetônicos';
+                      addMessageAndBroadcast({
+                        role: 'user',
+                        content: pergunta,
+                        contentType: 'text',
+                        sessionId: currentSessionId,
+                      });
+                      if (n8nServiceRef.current) {
+                        setLoading(true);
+                        n8nServiceRef.current.sendMessage(pergunta)
+                          .then(handleN8nResponse)
+                          .finally(() => setLoading(false));
+                      }
+                    }}
+                  >
+                    Sugira os melhores tipos de vidro para projetos arquitetônicos
+                  </button>
+                  <button
+                    className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
+                    onClick={() => {
+                      const pergunta = 'Explique o processo de manufatura de vidro plano';
+                      addMessageAndBroadcast({
+                        role: 'user',
+                        content: pergunta,
+                        contentType: 'text',
+                        sessionId: currentSessionId,
+                      });
+                      if (n8nServiceRef.current) {
+                        setLoading(true);
+                        n8nServiceRef.current.sendMessage(pergunta)
+                          .then(handleN8nResponse)
+                          .finally(() => setLoading(false));
+                      }
+                    }}
+                  >
+                    Explique o processo de manufatura de vidro plano
+                  </button>
+                  <button
+                    className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
+                    onClick={() => {
+                      const pergunta = 'Práticas de sustentabilidade na produção de vidro no Brasil';
+                      addMessageAndBroadcast({
+                        role: 'user',
+                        content: pergunta,
+                        contentType: 'text',
+                        sessionId: currentSessionId,
+                      });
+                      if (n8nServiceRef.current) {
+                        setLoading(true);
+                        n8nServiceRef.current.sendMessage(pergunta)
+                          .then(handleN8nResponse)
+                          .finally(() => setLoading(false));
+                      }
+                    }}
+                  >
+                    Práticas de sustentabilidade na produção de vidro no Brasil
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -556,6 +797,31 @@ export function Chat() {
                 {sessionMessages.map((message, idx) => (
                   <MessageBubble key={idx} message={message} onReply={handleReply} />
                 ))}
+                {showTypingIndicator && (
+                  <MessageBubble
+                    message={{
+                      id: `typing-${currentSessionId}`,
+                      role: "assistant",
+                      content: typeof typingText !== 'undefined' ? typingText : '',
+                      contentType: "text",
+                      timestamp: new Date(),
+                      sessionId: currentSessionId,
+                    }}
+                  />
+                )}
+                {typing && (
+                  <MessageBubble
+                    message={{
+                      id: `typing-indicator-${currentSessionId}`,
+                      role: "assistant",
+                      content: typeof assistantTyping !== 'undefined' ? assistantTyping : '',
+                      contentType: "text",
+                      timestamp: new Date(),
+                      sessionId: currentSessionId,
+                    }}
+                    onReply={handleReply}
+                  />
+                )}
                 <div ref={messagesEndRef} />
               </>
             )
@@ -568,7 +834,7 @@ export function Chat() {
         >
           <Button
             onClick={handleNewSession}
-            className="bg-gradient-to-r from-primary to-[#4ABF90] text-white px-2 py-1 rounded shadow text-xs"
+            className="bg-gradient-to-r from-primary to-[#4ABF90] text-white px-2 py-1 rounded shadow text-xs new-conversation-button"
             title="Nova Conversa"
           >
             Nova Conversa
@@ -578,7 +844,11 @@ export function Chat() {
               <div className="mb-2 p-2 bg-muted/50 rounded-md border-l-4 border-primary flex items-center justify-between">
                 <div className="flex-1">
                   <span className="text-xs text-muted-foreground">Respondendo a:</span>
-                  <p className="text-sm truncate">{replyingTo.content}</p>
+                  <p className="text-sm truncate">
+                    {replyingTo.content?.length > 40
+                      ? replyingTo.content.slice(0, 40) + '...'
+                      : replyingTo.content}
+                  </p>
                 </div>
                 <button
                   onClick={handleCancelReply}
@@ -595,7 +865,7 @@ export function Chat() {
             <Input
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={(e) => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage();

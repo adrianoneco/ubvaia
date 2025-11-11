@@ -50,7 +50,10 @@ export default function Home() {
                 <li key={idx} className="border-b border-border pb-2">
                   <p className="text-sm">{msg.content}</p>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(msg.timestamp).toLocaleString()}
+                    {msg.timestamp
+                      ? new Date(msg.timestamp).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                      : 'Sem data'
+                    }
                   </span>
                 </li>
               ))}

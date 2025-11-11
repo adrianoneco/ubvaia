@@ -1,9 +1,58 @@
+"use client";
+// Formatação convidativa do texto da assistente
+function formatAssistantText(text: string) {
+  if (!text) return '';
+  // Detect markdown table and convert to HTML table
+  if (/^\s*\|(.+)\|\s*$/m.test(text)) {
+    const lines = text.trim().split(/\r?\n/).filter(l => l.trim().startsWith('|'));
+    if (lines.length > 1) {
+      const header = lines[0].split('|').map(c => c.trim().replace(/\*+/g, '').replace(/-+/g, '')).filter(Boolean);
+      const rows = lines.slice(1).map(l => l.split('|').map(c => c.trim().replace(/\*+/g, '').replace(/-+/g, '')).filter(Boolean));
+      let html = '<table class="w-full text-sm border mt-2 mb-2"><thead><tr>';
+      header.forEach(cell => {
+        html += `<th class="border px-2 py-1 bg-muted font-bold">${cell}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => {
+          html += `<td class="border px-2 py-1">${cell}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+  }
+  let clean = text
+    .replace(/\*+/g, '')
+    .replace(/-{3,}/g, '') // Remove horizontal lines
+    .replace(/(<br\/>)+/g, '<br/>') // Limit consecutive <br/> to one
+    .replace(/\n{2,}/g, '\n') // Limit consecutive newlines
+    .replace(/\s{2,}/g, ' ') // Remove extra spaces
+    .replace(/\s+$/g, '').replace(/^\s+/g, '') // Trim
+    .replace(/(^|<br\/>)\d+\.\s*/g, '$1') // Remove isolated numbering
+    .replace(/(^|<br\/>)De\s*/gi, '$1') // Remove 'De' at start
+    .replace(/(<span[^>]*>Próximos passos:)(.*?)(<br\/>)*/gi, '<span style="font-weight:bold;color:#256d4a;font-size:1.08em;background:#eaf6ff;padding:2px 8px;border-radius:6px;">Próximos passos:</span>')
+    .replace(/^(.*?:)/gm, '<span style="font-weight:bold;color:#256d4a">$1</span>') // Highlight titles
+    .replace(/\n- /g, '<br/><span style="color:#2b7bb9;font-weight:bold">•</span> ') // Highlight lists
+    .replace(/([^.?!])([.?!])\s+/g, '$1$2<br/>') // Break long sentences
+    .replace(/\n/g, '<br/>')
+    .replace(/\|[-]+\|[-]+\|/g, '') // Remove markdown table headers
+    .replace(/\|/g, ' ') // Remove table pipes
+    .replace(/#+/g, '') // Remove markdown hashes
+    .replace(/(<br\/>){2,}/g, '<br/>'); // Remove excessive <br>
+  // Remove any leftover HTML tags that are not allowed
+  clean = clean.replace(/<(?!br\/?|span|\/span)[^>]+>/g, '');
+  return clean;
+}
 // Componente de balão de mensagem
-'use client';
 
 import { motion } from 'framer-motion';
+import './ui/bubbleMessage.css';
 import { Message } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { parseDbTimestamp, formatToSaoPaulo } from '@/server/datetime';
 import Image from 'next/image';
 
 interface MessageBubbleProps {
@@ -12,14 +61,51 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, onReply }: MessageBubbleProps) {
+  // Detecta e renderiza tabela em HTML se aplicável
+  function renderTableIfDetected(text: string) {
+    // Detecta linhas e colunas por tabulação, ponto e vírgula ou pipe
+    const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+    if (lines.length > 1 && lines.every(l => /[\t;|]/.test(l))) {
+      // Detecta separador
+      const sep = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : '|');
+      const rows = lines.map(l => l.split(new RegExp(sep)).map(c => c.trim()));
+      return (
+        <table className="w-full text-sm border mt-2 mb-2">
+          <thead>
+            <tr>
+              {rows[0].map((cell, idx) => (
+                <th key={idx} className="border px-2 py-1 bg-muted font-bold">{cell}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(1).map((row, i) => (
+              <tr key={i}>
+                {row.map((cell, idx) => (
+                  <td key={idx} className="border px-2 py-1">{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
+    }
+    return null;
+  }
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
-  // Formatar data e hora juntas (apenas uma linha)
-  const dateStr = message.timestamp
-    ? new Date(message.timestamp).toLocaleString('pt-BR', {
-        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
-      })
-    : '';
+
+  // Efeito GIF sutil para balão da assistente
+  const assistantBubbleClass = isAssistant
+    ? 'bg-gradient-to-br from-[#f7faff] via-[#eaf6ff] to-[#e0f0ff] animate-bubble-gif'
+    : 'bg-card text-card-foreground rounded-bl-sm';
+
+  // Formatação convidativa do texto da assistente
+  // (mantida apenas uma implementação abaixo)
+  // Centralized date parsing/formatting for correct TZ
+  const dateStr = formatToSaoPaulo(parseDbTimestamp(message.timestamp));
+
+
 
   return (
     <motion.div
@@ -33,18 +119,37 @@ export function MessageBubble({ message, onReply }: MessageBubbleProps) {
     >
       <div
         className={cn(
-          'max-w-[80%] rounded-2xl px-4 py-3 shadow-sm border border-border',
+          'max-w-[80%] rounded-2xl px-4 py-3 shadow-sm border border-border transition-colors duration-700',
           isUser
             ? 'bg-primary text-primary-foreground rounded-br-sm'
-            : 'bg-card text-card-foreground rounded-bl-sm'
+            : 'bg-[#ece5dd] dark:bg-[#3a3f45] text-[#444] dark:text-[#e5e7eb] rounded-2xl px-4 py-3 border border-border transition-colors duration-700 max-w-[80%]'
         )}
+  // Removido overflow interno para usar barra externa do chat
       >
         {/* Conteúdo de texto */}
         {message.contentType === 'text' && (
           <>
-            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+            {(() => {
+              if (isAssistant) {
+                const table = renderTableIfDetected(message.content);
+                if (table) return table;
+                return (
+                  <p
+                    className="whitespace-pre-wrap break-words text-[0.97rem] leading-relaxed px-5 py-3 rounded-xl border border-[#e0f0ff] dark:border-[#23272f] bg-[#f3f4f6] dark:bg-[#6b7280] text-[#222] dark:text-[#f1f1f1]"
+                    style={{ fontFamily: 'Inter, Arial, sans-serif', margin: '0.5em 0', letterSpacing: '0.01em' }}
+                    dangerouslySetInnerHTML={{ __html: formatAssistantText(message.content) }}
+                  />
+                );
+              }
+              return (
+                <p className="whitespace-pre-wrap break-words">
+                  {message.content}
+                </p>
+              );
+            })()}
+
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              <span className="text-xs" style={{ color: '#888' }}>{dateStr}</span>
               {isAssistant && onReply && (
                 <button
                   onClick={() => onReply(message)}
@@ -92,7 +197,7 @@ export function MessageBubble({ message, onReply }: MessageBubbleProps) {
               />
             </div>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              <span className="text-xs" style={{ color: '#888' }}>{dateStr}</span>
               {isAssistant && onReply && (
                 <button
                   onClick={() => onReply(message)}
@@ -146,7 +251,7 @@ export function MessageBubble({ message, onReply }: MessageBubbleProps) {
               </p>
             )}
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              <span className="text-xs" style={{ color: '#888' }}>{dateStr}</span>
               {isAssistant && onReply && (
                 <button
                   onClick={() => onReply(message)}
@@ -194,7 +299,7 @@ export function MessageBubble({ message, onReply }: MessageBubbleProps) {
               </audio>
             </div>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs" style={{ color: '#444' }}>{dateStr}</span>
+              <span className="text-xs" style={{ color: '#888' }}>{dateStr}</span>
               {isAssistant && onReply && (
                 <button
                   onClick={() => onReply(message)}

@@ -1,13 +1,9 @@
 // Database adapter: use PostgreSQL when POSTGRES_HOST is provided, otherwise fallback to SQLite
 // For Postgres support add `pg` to dependencies (already added to package.json).
 
-import path from 'path';
-import Database from 'better-sqlite3';
 import { Pool } from 'pg';
 
-const usePostgres = !!process.env.POSTGRES_HOST && process.env.POSTGRES_HOST !== '';
-
-let dbExport: { type: 'pg'; pool: Pool } | { type: 'sqlite'; db: Database.Database };
+let dbExport: { type: 'pg'; pool: Pool };
 
 const {
   POSTGRES_HOST = process.env.POSTGRES_HOST,
@@ -43,6 +39,7 @@ const pool = new Pool({
           role TEXT,
           content TEXT,
           content_type TEXT,
+          image_url TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(session_id) REFERENCES sessions(id)
         );
@@ -69,4 +66,4 @@ dbExport = {
   pool,
 };
 
-export default dbExport;
+export { dbExport, pool };

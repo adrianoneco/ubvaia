@@ -1,0 +1,8 @@
+@keyframes bubble-gif {
+  0% { box-shadow: 0 2px 8px 0 #e0f0ff44; }
+  50% { box-shadow: 0 4px 16px 0 #eaf6ff88; }
+  100% { box-shadow: 0 2px 8px 0 #e0f0ff44; }
+}
+.animate-bubble-gif {
+  animation: bubble-gif 2.5s infinite;
+}
