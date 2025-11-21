@@ -30,18 +30,19 @@ jobs:
             git checkout homolog && git pull origin homolog
 
             echo "Instalando dependências..."
-            npm install --production
+            npm install -g typescript bun
+            bun install --force
 
             echo "Corrigindo vunerabilidades de pacotes..."
-            pm install -g typescript
+            
             git checkout homolog && npm install
             tsc --noEmit && npm audit fix --force
 
             echo "Validando Código"
-            npm run check
+            bun run check
 
             echo "Buildando..."
-            npm run build
+            bun run build
 
             echo "Reiniciando PM2..."
             chmod -R 777 /srv/sites/ubvaia-homolog
