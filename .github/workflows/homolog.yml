@@ -16,6 +16,9 @@ jobs:
       - name: Instalar sshpass
         run: sudo apt-get update && sudo apt-get install -y sshpass
 
+      - name: Checkout rep
+        run: npm install -g typescript && git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia && git checkout homolog && npm install && tsc --noEmit && npm audit fix --force && rm -rf /tmp/ubvaia
+
       - name: Deploy via SSH (user + password)
         run: |
           sshpass -p "${{ secrets.HOMOLOG_SSH_PASSWORD }}" ssh -o StrictHostKeyChecking=no ${{
@@ -24,10 +27,16 @@ jobs:
             cd /srv/sites/ubvaia-homolog
 
             echo "Pull do repositório..."
-            git pull
+            git checkout homolog && git pull origin homolog
 
             echo "Instalando dependências..."
             npm install --production
+
+            echo "Corrigindo vunerabilidades de pacotes..."
+            pm install -g typescript
+            git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia
+            git checkout homolog && npm install
+            tsc --noEmit && npm audit fix --force
 
             echo "Validando Código"
             npm run check
