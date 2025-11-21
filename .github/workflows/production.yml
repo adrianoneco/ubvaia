@@ -1,4 +1,4 @@
-name: Deploy UBVA IA - PRODUCTION
+name: Deploy UBVA-IA - PRODUCTION
 
 on:
   push:
