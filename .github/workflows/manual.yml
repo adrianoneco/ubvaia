@@ -1,0 +1,39 @@
+name: Deploy to Production on OCH-VPS13670
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH (user + password)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          # Se usar outra porta, adicione:
+          # port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd /srv/sites/ubvaia
+
+            echo "Atualizando o código..."
+            git pull
+
+            echo "Instalando dependências..."
+            npm install --production
+
+            echo "Buildando o projeto..."
+            npm run build
+
+            echo "Reiniciando PM2..."
+            pm2 restart ubva-ia || pm2 start dist/index.js --name ubva-ia
+
+            echo "🚀 Deploy finalizado!"
