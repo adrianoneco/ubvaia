@@ -29,6 +29,9 @@ jobs:
             echo "Instalando dependências..."
             npm install --production
 
+            echo "Validando Código"
+            npm run check
+
             echo "Buildando..."
             npm run build
 
