@@ -25,7 +25,7 @@ jobs:
             secrets.HOMOLOG_SSH_USER }}@${{ secrets.HOMOLOG_SSH_HOST }} << 'EOF'
 
             cd /srv/sites/ubvaia-homolog
-            git commit -m "check:commit ALL uncommited changes"
+            git stash push -u --include-untracked -m "auto"
 
             echo "Pull do repositório..."
             git checkout homolog && git pull origin homolog
