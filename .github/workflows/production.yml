@@ -3,7 +3,7 @@ name: Deploy UBVA IA - PRODUCTION
 on:
   push:
     branches:
-      - homolog
+      - main
 
 jobs:
   deploy:
