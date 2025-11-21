@@ -1,4 +1,4 @@
-# 🎨 ChatGPT Clone com Integração n8n
+# 🎨 ChatGPT IA UBVA
 
 Site estilo ChatGPT totalmente funcional com integração direta ao n8n para processamento de mensagens e arquivos.
 
