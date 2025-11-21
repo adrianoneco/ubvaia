@@ -1,3 +1,5 @@
+import { FaBroom } from 'react-icons/fa';
+
 // Função para enviar evento via API interna
 async function sendWebhookProxy(event: string, payload: any) {
   const res = await fetch('/api/webhook-proxy', {

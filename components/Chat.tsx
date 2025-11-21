@@ -1,21 +1,25 @@
 "use client";
 // Componente principal do Chat
 
-import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import { useChatStore } from '@/lib/store';
 import { v4 as uuidv4 } from 'uuid';
 import { N8nService } from '@/lib/n8n-service';
 import { getWebhookConfig } from '@/lib/webhook-config';
 import { MessageBubble } from './MessageBubble';
+import Avatar from './Avatar';
 import { FileUploader } from './FileUploader';
 import { AudioRecorder } from './AudioRecorder';
 import { MicrophonePermissionBanner } from './MicrophonePermissionBanner';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { WebGlassDownload } from './WebGlassDownload';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { Message } from '@/lib/types';
 import { sendWebhookEvent } from '@/lib/webhook-config';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from './ui/dialog';
+import { MdAdd,MdSend,MdPerson,MdClose,MdShoppingCart,MdArrowDownward } from 'react-icons/md';
 
 const Sidebar = ({
   isExpanded,
@@ -62,14 +66,14 @@ const Sidebar = ({
       <div className="flex items-center justify-center p-4">
         <button
           className={`rounded-full bg-gradient-to-r from-primary to-[#4ABF90] text-white shadow hover:bg-primary/90 flex items-center transition-all duration-300 ease-in-out
-            ${isExpanded ? 'gap-3 w-full h-12 px-4' : 'flex-col w-12 h-12 gap-1 px-0 py-0 justify-center'}`}
+        ${isExpanded ? 'gap-3 w-full h-12 px-4' : 'flex-col w-12 h-12 gap-1 px-0 py-0 justify-center'}`}
           onClick={handleNewSession}
           title="Nova Sessão"
         >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white">
-            <path d="M12 5v14" />
-            <path d="M5 12h14" />
-          </svg>
+          {/* Usando react-icons */}
+          <span className="text-white">
+        <MdAdd size={28} />
+          </span>
           {isExpanded && <span className="text-base font-semibold transition-opacity duration-300 ease-in-out opacity-100">Nova Sessão</span>}
         </button>
       </div>
@@ -194,44 +198,18 @@ export function Chat() {
 
   // Função para efeito de digitação (determinística)
   const typeEffect = (fullText: string, callback?: () => void) => {
-    setShowTypingIndicator(true);
-    setTypedContent('');
-    setTyping(false);
-
-    setTimeout(() => {
-      setShowTypingIndicator(false);
-      setTyping(true);
-      setTypedContent('');
-
-      if (!fullText || fullText.length === 0) {
-        setTyping(false);
-        if (callback) callback();
-        return;
-      }
-
-      let i = 0;
-      const intervalMs = Math.max(typingSpeed, 10);
-
-      // Use setInterval and slice to deterministically set the visible text
-      const interval = setInterval(() => {
-        i++;
-        setTypedContent(fullText.slice(0, i));
-        if (i >= fullText.length) {
-          clearInterval(interval);
-          setTyping(false);
-          if (callback) callback();
-        }
-      }, intervalMs);
-
-    }, 900); // tempo do efeito 'digitando...'
+    setShowTypingIndicator(false); // Disable typing indicator immediately
+    setTypedContent(fullText); // Render the full response instantly
+    if (callback) callback();
   };
+
   // Check localStorage for accepted policy on mount
-  const [acceptedPolicy, setAcceptedPolicy] = useState(() => {
+  const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+  useEffect(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('policyAccepted') === 'true';
+      setAcceptedPolicy(localStorage.getItem('policyAccepted') === 'true');
     }
-    return false;
-  });
+  }, []);
   const [clearFile, setClearFile] = useState(false);
   // Reset clearFile flag after FileUploader cleans up
   useEffect(() => {
@@ -253,7 +231,16 @@ export function Chat() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showIdentificationModal, setShowIdentificationModal] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Container ref to compute scroll position and avoid aggressive scrollIntoView on mobile
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  // Allow user to lock auto-scroll when they want to read older messages
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  // Track previous messages length to only scroll when new messages arrive
+  const lastMessagesLengthRef = useRef<number>(0);
   const n8nServiceRef = useRef<N8nService | null>(null);
 
   const {
@@ -300,10 +287,34 @@ export function Chat() {
     n8nServiceRef.current = new N8nService(config);
   }, [config]);
 
-  // Scroll automático para última mensagem
+  // Scroll automático para última mensagem (guardado)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, showTypingIndicator, typing]);
+    try {
+      const container = messagesContainerRef.current;
+      const shouldScroll = autoScrollEnabled && messages.length > lastMessagesLengthRef.current;
+      if (!shouldScroll) {
+        lastMessagesLengthRef.current = messages.length;
+        return;
+      }
+
+      // If container exists, check whether user is near bottom (within 200px)
+      if (container) {
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+        if (distanceFromBottom < 200) {
+          // Use 'auto' on mobile for immediate jump, 'smooth' otherwise
+          const behavior = /Mobi|Android/i.test(navigator.userAgent) ? 'auto' : 'smooth';
+          messagesEndRef.current?.scrollIntoView({ behavior: behavior as ScrollBehavior });
+        }
+      } else {
+        // Fallback: scroll target element
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+      lastMessagesLengthRef.current = messages.length;
+    } catch (e) {
+      console.debug('scroll handling error', e);
+    }
+  }, [messages, showTypingIndicator, typing, autoScrollEnabled]);
 
   useEffect(() => {
     if (!typing) {
@@ -460,51 +471,74 @@ export function Chat() {
   };
 
   const handleN8nResponse = async (response: any) => {
-    if (response.error) {
-      typeEffect(response.error, () => {
-        addMessageAndBroadcast({
-          role: 'assistant',
-          content: response.error,
-          contentType: 'text',
-          sessionId: currentSessionId,
+    try {
+      console.debug('handleN8nResponse - raw response:', response);
+      if (!response) {
+        const msg = 'Nenhuma resposta recebida do n8n.';
+        typeEffect(msg, () => {
+          addMessageAndBroadcast({ role: 'assistant', content: msg, contentType: 'text', sessionId: currentSessionId });
         });
-      });
-      return;
-    }
-
-    if (response.type === 'image' && response.url) {
-      let imageUrl = response.url;
-      // Se for blob, converte para base64
-      if (imageUrl.startsWith('blob:')) {
-        try {
-          const blob = await fetch(imageUrl).then(r => r.blob());
-          imageUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } catch (err) {
-          console.error('Erro ao converter blob para base64:', err);
-        }
+        return;
       }
-      addMessageAndBroadcast({
-        role: 'assistant',
-        content: response.content || '',
-        contentType: 'image',
-        imageUrl,
-        sessionId: currentSessionId,
-      });
-    } else {
-      const text = typeof response === 'string' ? response : (response.content || response.output || 'Resposta recebida do n8n');
-      typeEffect(text, () => {
-        addMessageAndBroadcast({
-          role: 'assistant',
-          content: text,
-          contentType: 'text',
-          sessionId: currentSessionId,
+
+      if (response.error) {
+        const errMsg = typeof response.error === 'string' ? response.error : JSON.stringify(response.error);
+        typeEffect(errMsg, () => {
+          addMessageAndBroadcast({ role: 'assistant', content: errMsg, contentType: 'text', sessionId: currentSessionId });
         });
+        return;
+      }
+
+      // Helper to robustly extract text from many possible payload shapes
+      const extractText = (res: any): string | null => {
+        if (!res) return null;
+        if (typeof res === 'string') return res;
+        if (typeof res === 'object') {
+          // common fields
+          if (res.output && typeof res.output === 'string') return res.output;
+          if (res.content && typeof res.content === 'string') return res.content;
+          if (res.text && typeof res.text === 'string') return res.text;
+          if (res.Resposta && typeof res.Resposta === 'string') return res.Resposta;
+          if (res.answer && typeof res.answer === 'string') return res.answer;
+          // array responses
+          if (Array.isArray(res) && res.length > 0) {
+            const first = res[0];
+            if (first.output && typeof first.output === 'string') return first.output;
+            if (first.content && typeof first.content === 'string') return first.content;
+          }
+          // nested data
+          if (res.data) return extractText(res.data);
+        }
+        return null;
+      };
+
+      // Image handling
+      if (response.type === 'image' && (response.url || response.imageUrl)) {
+        let imageUrl = response.url || response.imageUrl;
+        if (typeof imageUrl === 'string' && imageUrl.startsWith('blob:')) {
+          try {
+            const blob = await fetch(imageUrl).then(r => r.blob());
+            imageUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          } catch (err) {
+            console.error('Erro ao converter blob para base64:', err);
+          }
+        }
+        addMessageAndBroadcast({ role: 'assistant', content: response.content || '', contentType: 'image', imageUrl, sessionId: currentSessionId });
+        return;
+      }
+
+      const text = extractText(response) || 'Resposta recebida do n8n (formato inesperado).';
+      typeEffect(text, () => {
+        addMessageAndBroadcast({ role: 'assistant', content: text, contentType: 'text', sessionId: currentSessionId });
       });
+    } catch (err) {
+      console.error('Erro em handleN8nResponse:', err, 'response:', response);
+      addMessageAndBroadcast({ role: 'assistant', content: 'Erro interno ao processar resposta do n8n.', contentType: 'text', sessionId: currentSessionId });
     }
   };
 
@@ -564,15 +598,133 @@ export function Chat() {
       }
     `;
     document.head.appendChild(style);
+    // additional keyframes for formatting dots animation
+    const extra = document.createElement('style');
+    extra.innerHTML = `
+      .formatting-dots { display: inline-flex; align-items: center; gap: 6px; }
+  .formatting-dots span { width: 8px; height: 8px; background: rgba(14,165,233,0.95); border-radius: 9999px; display: inline-block; opacity: 0.95; }
+      .formatting-dots span.dot-1 { animation: dot 1s infinite; animation-delay: 0s; }
+      .formatting-dots span.dot-2 { animation: dot 1s infinite; animation-delay: 0.12s; }
+      .formatting-dots span.dot-3 { animation: dot 1s infinite; animation-delay: 0.24s; }
+      @keyframes dot { 0% { transform: translateY(0); opacity: 0.5 } 50% { transform: translateY(-6px); opacity: 1 } 100% { transform: translateY(0); opacity: 0.5 } }
+
+      /* Assistant avatar subtle thinking pulse */
+      .assistant-avatar { border-radius: 9999px; box-shadow: 0 0 0 rgba(59,130,246,0.0); }
+      .assistant-avatar.pulsing { animation: assistant-pulse 1.6s infinite; }
+      @keyframes assistant-pulse {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59,130,246,0.15); }
+        50% { transform: scale(1.06); box-shadow: 0 6px 18px 6px rgba(59,130,246,0.08); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+      }
+    `;
+    document.head.appendChild(extra);
 
     return () => {
       document.head.removeChild(style);
+      document.head.removeChild(extra);
     };
   }, []);
 
+  const handleIdentificationSubmit = async () => {
+    if (userName.trim() && whatsappNumber.trim()) {
+      const sessionData = {
+        id: currentSessionId,
+        nome_completo: userName,
+        remote_jid: whatsappNumber,
+      };
+      try {
+        const response = await fetch('/api/session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(sessionData),
+        });
+        if (!response.ok) {
+          throw new Error('Failed to save session data');
+        }
+        console.log('User details saved:', sessionData);
+        // Salvar localmente para anexar às mensagens posteriores
+        try {
+          localStorage.setItem('userName', sessionData.nome_completo);
+          localStorage.setItem('whatsappNumber', sessionData.remote_jid);
+          // identification answered, no longer awaiting a name
+          localStorage.removeItem('awaitingName');
+        } catch (e) {
+          // localStorage pode falhar em ambientes de SSR; ignorar
+        }
+        // Atualizar o estado local com o nome
+        setUserName(sessionData.nome_completo);
+      } catch (error) {
+        console.error('Error saving user details:', error);
+      }
+      // Close the modal
+      setShowIdentificationModal(false);
+    } else {
+      alert('Por favor, preencha todos os campos ou continue como anônimo.');
+    }
+  };
+
+  // Check accepted policy state before rendering modals
+  useEffect(() => {
+    // When policy is accepted, decide whether to show identification modal.
+    // Show it only if there is no saved identity (userName or whatsappNumber) for the current session.
+    if (acceptedPolicy) {
+      try {
+        const storedName = localStorage.getItem('userName');
+        const storedNumber = localStorage.getItem('whatsappNumber');
+        if (!storedName && !storedNumber) {
+          setShowIdentificationModal(true);
+          try { localStorage.setItem('awaitingName', 'true'); } catch (e) { /* ignore */ }
+        } else {
+          setUserName(storedName || '');
+          setWhatsappNumber(storedNumber || '');
+          setShowIdentificationModal(false);
+          try { localStorage.removeItem('awaitingName'); } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        // If localStorage is not available, still show the modal so the user can identify
+        setShowIdentificationModal(true);
+      }
+    } else {
+      setShowIdentificationModal(false);
+    }
+  }, [acceptedPolicy, currentSessionId]);
+
+  // If messages change and a name was saved by the store (localStorage), close the identification modal
+  useEffect(() => {
+    try {
+      const storedName = localStorage.getItem('userName');
+      const storedNumber = localStorage.getItem('whatsappNumber');
+      if (storedName) {
+        setUserName(storedName);
+        setWhatsappNumber(storedNumber || '');
+        setShowIdentificationModal(false);
+        try { localStorage.removeItem('awaitingName'); } catch (e) { /* ignore */ }
+        // Ensure server session is updated with the stored identity (safe idempotent call)
+        (async () => {
+          try {
+            await fetch('/api/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: currentSessionId, nome_completo: storedName, remote_jid: storedNumber || undefined }),
+            });
+          } catch (e) {
+            // ignore
+          }
+        })();
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [messages, currentSessionId]);
+
+  // Add state for WebGlass modal visibility
+  const [showWebGlassModal, setShowWebGlassModal] = useState(false);
+
   return (
     <div className="flex h-full w-full pl-0">
-      {/* Render policy modal only if not accepted */}
+      {/* Render privacy modal first */}
       {!acceptedPolicy && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="bg-white dark:bg-card rounded-2xl shadow-2xl p-10 max-w-md w-full flex flex-col gap-8 border border-border text-gray-900 dark:text-white animate-fade-in">
@@ -610,21 +762,91 @@ export function Chat() {
           </div>
         </div>
       )}
+
+      {/* Identification modal appears only after privacy is accepted */}
+      {acceptedPolicy && showIdentificationModal && (
+        <Dialog open={showIdentificationModal} onOpenChange={setShowIdentificationModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Identifique-se</DialogTitle>
+              <DialogDescription>
+                Por favor, insira seu nome completo e número do WhatsApp para continuar ou prossiga como anônimo.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4">
+              <input
+              type="text"
+              placeholder="Nome completo (opcional)"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              className="border border-border rounded px-3 py-2 w-full"
+              />
+              <input
+              type="text"
+              placeholder="Número do WhatsApp (opcional)"
+              value={whatsappNumber}
+              onChange={(e) => setWhatsappNumber(e.target.value)}
+              className="border border-border rounded px-3 py-2 w-full"
+              />
+              <span className="text-xs text-muted-foreground">
+              Você pode preencher apenas os campos, se preferir.
+              </span>
+            </div>
+            <DialogFooter>
+              <button
+                onClick={handleIdentificationSubmit}
+                className="bg-primary text-white px-4 py-2 rounded-md"
+              >
+                Continuar
+              </button>
+              <button
+                onClick={async () => {
+                  // Mark as anonymous and persist so admin sees this session as anonymous
+                  const anonName = 'CLIENTE UBVA';
+                  try {
+                    localStorage.setItem('userName', anonName);
+                    localStorage.removeItem('awaitingName');
+                  } catch (e) {
+                    // ignore localStorage errors
+                  }
+                  setUserName(anonName);
+                  // Persist to server so session shows as anonymous
+                  try {
+                    await fetch('/api/session', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: currentSessionId, nome_completo: anonName }),
+                    });
+                  } catch (e) {
+                    // ignore network errors here
+                  }
+                  setShowIdentificationModal(false);
+                }}
+                className="bg-muted text-foreground px-4 py-2 rounded-md"
+              >
+                Continuar como anônimo
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Topbar com botão de login mais afastado do topo/dark mode */}
       <div className="fixed top-6 right-40 z-50 flex items-center gap-4">
         {/* Botões de Login e Cadastro ocultos */}
         {isAuthenticated && (
-          <button
+            <button
             className="bg-muted text-primary rounded-full p-2 shadow hover:bg-muted/80 transition-all flex items-center justify-center border border-white/80"
             title="Usuário logado"
             style={{ width: 44, height: 44 }}
-          >
-            {/* Classic user/avatar SVG icon */}
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
-            </svg>
-          </button>
+            >
+            {/* React-icons user/avatar icon */}
+            <span className="text-primary">
+              <MdAdd size={28} style={{ display: 'none' }} /> {/* hidden, just for import */}
+              {/* Use MdPerson from react-icons/md */}
+              <MdPerson size={28} />
+            </span>
+            </button>
         )}
       </div>
 
@@ -716,183 +938,251 @@ export function Chat() {
         {/* Main Chat Area */}
         <div
           className="flex-1 overflow-y-auto chat-scrollbar px-4 py-6 space-y-4 pb-28 min-h-0 flex flex-col"
+          ref={messagesContainerRef}
         >
           {(sessions.length === 0 || !currentSessionId) ? null : (
             sessionMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full w-full pt-8 pb-4">
-                <div className="mb-2 w-28 h-28 flex items-center justify-center rounded-xl bg-white/80 dark:bg-white/90 shadow">
-                  <img src="/logo.png" alt="Logo UBVA" className="w-20 h-20 object-contain" />
-                </div>
-                <span className="text-xl font-bold text-primary text-center mb-2">
-                  Bem-vindo à Carlos-IA da UBVA!<br />
-                  <span className="text-base font-normal text-muted-foreground">Seu assistente inteligente está pronto para ajudar você a transformar conversas em soluções.</span>
-                </span>
-                <div className="flex flex-col items-center gap-2 mt-4 w-full max-w-lg">
-                  <span className="text-base font-semibold text-muted-foreground mb-1">Sugestões rápidas:</span>
-                  <button
-                    className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
-                    onClick={() => {
-                      const pergunta = 'Sugira os melhores tipos de vidro para projetos arquitetônicos';
-                      addMessageAndBroadcast({
-                        role: 'user',
-                        content: pergunta,
-                        contentType: 'text',
-                        sessionId: currentSessionId,
-                      });
-                      if (n8nServiceRef.current) {
-                        setLoading(true);
-                        n8nServiceRef.current.sendMessage(pergunta)
-                          .then(handleN8nResponse)
-                          .finally(() => setLoading(false));
-                      }
-                    }}
-                  >
-                    Sugira os melhores tipos de vidro para projetos arquitetônicos
-                  </button>
-                  <button
-                    className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
-                    onClick={() => {
-                      const pergunta = 'Explique o processo de manufatura de vidro plano';
-                      addMessageAndBroadcast({
-                        role: 'user',
-                        content: pergunta,
-                        contentType: 'text',
-                        sessionId: currentSessionId,
-                      });
-                      if (n8nServiceRef.current) {
-                        setLoading(true);
-                        n8nServiceRef.current.sendMessage(pergunta)
-                          .then(handleN8nResponse)
-                          .finally(() => setLoading(false));
-                      }
-                    }}
-                  >
-                    Explique o processo de manufatura de vidro plano
-                  </button>
-                  <button
-                    className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
-                    onClick={() => {
-                      const pergunta = 'Práticas de sustentabilidade na produção de vidro no Brasil';
-                      addMessageAndBroadcast({
-                        role: 'user',
-                        content: pergunta,
-                        contentType: 'text',
-                        sessionId: currentSessionId,
-                      });
-                      if (n8nServiceRef.current) {
-                        setLoading(true);
-                        n8nServiceRef.current.sendMessage(pergunta)
-                          .then(handleN8nResponse)
-                          .finally(() => setLoading(false));
-                      }
-                    }}
-                  >
-                    Práticas de sustentabilidade na produção de vidro no Brasil
-                  </button>
-                </div>
+          <div className="mb-2 w-28 h-28 flex items-center justify-center rounded-xl bg-white/80 dark:bg-white/90 shadow hidden sm:flex">
+            <img src="/logo.png" alt="Logo UBVA" className="w-20 h-20 object-contain" />
+          </div>
+          <span className="text-xl font-bold text-primary text-center mb-2">
+            Bem-vindo à Carlos-IA da UBVA!<br />
+            <span className="text-base font-normal text-muted-foreground">Seu assistente inteligente está pronto para ajudar você a transformar conversas em soluções.</span>
+          </span>
+          <div className="flex flex-col items-center gap-2 mt-4 w-full max-w-lg">
+            <span className="text-base font-semibold text-muted-foreground mb-1">Sugestões rápidas:</span>
+            <button
+              className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
+              onClick={async () => {
+                const pergunta = 'Sugira os melhores tipos de vidro para projetos arquitetônicos';
+                addMessageAndBroadcast({
+            role: 'user',
+            content: pergunta,
+            contentType: 'text',
+            sessionId: currentSessionId,
+                });
+                setLoading(true);
+                try {
+            const webhookConfig = await getWebhookConfig();
+            const webhookUrl = webhookConfig?.baseUrl || webhookConfig?.webhook?.baseUrl || webhookConfig?.webhookUrl || webhookConfig?.webhook?.url || webhookConfig?.webhook?.baseUrl || null;
+            if (!webhookUrl) {
+              alert('Configure o webhook do n8n no painel de webhook antes de enviar mensagens');
+              return;
+            }
+            const service = new N8nService({ ...config, webhookUrl });
+            let response = await service.sendMessage(pergunta);
+            if (response?.error && typeof window !== 'undefined') {
+              try {
+                const prox = await fetch('/api/n8n-proxy', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ webhookUrl, message: pergunta, session_id: currentSessionId }),
+                });
+                const proxData = await prox.json();
+                response = proxData;
+              } catch (err) {
+                console.error('Fallback proxy failed:', err);
+              }
+            }
+            handleN8nResponse(response);
+                } finally {
+            setLoading(false);
+                }
+              }}
+            >
+              Sugira os melhores tipos de vidro para projetos arquitetônicos
+            </button>
+            <button
+              className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
+              onClick={async () => {
+                const pergunta = 'Quais são as práticas mais comuns de sustentabilidade na produção de vidro no Brasil';
+                addMessageAndBroadcast({
+            role: 'user',
+            content: pergunta,
+            contentType: 'text',
+            sessionId: currentSessionId,
+                });
+                setLoading(true);
+                try {
+            const webhookConfig = await getWebhookConfig();
+            const webhookUrl = webhookConfig?.baseUrl || webhookConfig?.webhook?.baseUrl || webhookConfig?.webhookUrl || webhookConfig?.webhook?.url || webhookConfig?.webhook?.baseUrl || null;
+            if (!webhookUrl) {
+              alert('Configure o webhook do n8n no painel de webhook antes de enviar mensagens');
+              return;
+            }
+            const service = new N8nService({ ...config, webhookUrl });
+            let response = await service.sendMessage(pergunta);
+            if (response?.error && typeof window !== 'undefined') {
+              try {
+                const prox = await fetch('/api/n8n-proxy', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ webhookUrl, message: pergunta, session_id: currentSessionId }),
+                });
+                const proxData = await prox.json();
+                response = proxData;
+              } catch (err) {
+                console.error('Fallback proxy failed:', err);
+              }
+            }
+            handleN8nResponse(response);
+                } finally {
+            setLoading(false);
+                }
+              }}
+            >
+              Quais são as práticas mais comuns de sustentabilidade na produção de vidro no Brasil
+            </button>
+            <button
+              className="bg-primary/90 hover:bg-primary text-white px-4 py-2 rounded-lg shadow font-medium text-base w-full transition-colors"
+              onClick={async () => {
+                const pergunta = 'Explique como funciona o processo de manufatura de vidro plano e quais as suas principais aplicações no mercado brasileiro?';
+                addMessageAndBroadcast({
+            role: 'user',
+            content: pergunta,
+            contentType: 'text',
+            sessionId: currentSessionId,
+                });
+                setLoading(true);
+                try {
+            const webhookConfig = await getWebhookConfig();
+            const webhookUrl = webhookConfig?.baseUrl || webhookConfig?.webhook?.baseUrl || webhookConfig?.webhookUrl || webhookConfig?.webhook?.url || webhookConfig?.webhook?.baseUrl || null;
+            if (!webhookUrl) {
+              alert('Configure o webhook do n8n no painel de webhook antes de enviar mensagens');
+              return;
+            }
+            const service = new N8nService({ ...config, webhookUrl });
+            let response = await service.sendMessage(pergunta);
+            if (response?.error && typeof window !== 'undefined') {
+              try {
+                const prox = await fetch('/api/n8n-proxy', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ webhookUrl, message: pergunta, session_id: currentSessionId }),
+                });
+                const proxData = await prox.json();
+                response = proxData;
+              } catch (err) {
+                console.error('Fallback proxy failed:', err);
+              }
+            }
+            handleN8nResponse(response);
+                } finally {
+            setLoading(false);
+                }
+              }}
+            >
+              Explique como funciona o processo de manufatura de vidro plano e quais as suas principais aplicações no mercado brasileiro?
+            </button>
+          </div>
+          <WebGlassDownload />
               </div>
             ) : (
               <>
-                <MicrophonePermissionBanner />
-                {sessionMessages.map((message, idx) => (
-                  <MessageBubble key={idx} message={message} onReply={handleReply} />
-                ))}
-                {showTypingIndicator && (
-                  <MessageBubble
-                    message={{
-                      id: `typing-${currentSessionId}`,
-                      role: "assistant",
-                      content: typeof typingText !== 'undefined' ? typingText : '',
-                      contentType: "text",
-                      timestamp: new Date(),
-                      sessionId: currentSessionId,
-                    }}
-                  />
-                )}
-                {typing && (
-                  <MessageBubble
-                    message={{
-                      id: `typing-indicator-${currentSessionId}`,
-                      role: "assistant",
-                      content: typeof assistantTyping !== 'undefined' ? assistantTyping : '',
-                      contentType: "text",
-                      timestamp: new Date(),
-                      sessionId: currentSessionId,
-                    }}
-                    onReply={handleReply}
-                  />
-                )}
-                <div ref={messagesEndRef} />
+          {sessionMessages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onReply={handleReply}
+              userName={userName}
+            />
+          ))}
+          {/* Animated indicator while IA está formatando a resposta */}
+          {(showTypingIndicator || typing) && (
+            <div className="flex w-full mb-4 justify-start">
+              <div className="flex items-start gap-3">
+                <div className={`assistant-avatar ${showTypingIndicator || typing ? 'pulsing' : ''}`} aria-hidden>
+            <Avatar variant="assistant" size={40} />
+                </div>
+                <div className="max-w-[60%] rounded-2xl px-4 py-3 shadow-sm border border-border bg-gradient-to-br from-[#f7faff] via-[#eaf6ff] to-[#e0f0ff]">
+            <div className="flex items-center gap-3">
+              <div className="formatting-dots" aria-hidden>
+                <span className="dot-1" />
+                <span className="dot-2" />
+                <span className="dot-3" />
+              </div>
+              <div className="text-sm text-slate-700 dark:text-zinc-200"></div>
+            </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
               </>
             )
           )}
         </div>
-
-        {/* Input fixo no fluxo, não mais position: fixed */}
-        <div
-          className="border border-border px-4 py-3 bg-card/90 dark:bg-card/90 flex items-center gap-3 z-30 rounded-lg shadow-xl backdrop-blur-sm transition-all duration-200 mt-2"
-        >
-          <Button
-            onClick={handleNewSession}
-            className="bg-gradient-to-r from-primary to-[#4ABF90] text-white px-2 py-1 rounded shadow text-xs new-conversation-button"
-            title="Nova Conversa"
-          >
-            Nova Conversa
-          </Button>
-          <div className="flex-1">
-            {replyingTo && (
+            {/* Input fixo no fluxo, não mais position: fixed */}
+            <div
+            className="sticky bottom-0 left-0 right-0 border border-border px-4 py-3 bg-card/90 dark:bg-card/90 flex items-center gap-3 z-30 rounded-lg shadow-xl backdrop-blur-sm transition-all duration-200 mt-2"
+            style={{ boxShadow: '0 -2px 16px 0 rgba(0,0,0,0.08)' }}
+            >
+            <Button
+              onClick={handleNewSession}
+              className="bg-gradient-to-r from-primary to-[#4ABF90] text-white px-2 py-1 rounded shadow text-xs new-conversation-button"
+              title="Nova Conversa"
+            >
+              Nova Conversa
+            </Button>
+            <div className="flex-1">
+              {replyingTo && (
               <div className="mb-2 p-2 bg-muted/50 rounded-md border-l-4 border-primary flex items-center justify-between">
                 <div className="flex-1">
-                  <span className="text-xs text-muted-foreground">Respondendo a:</span>
-                  <p className="text-sm truncate">
-                    {replyingTo.content?.length > 40
-                      ? replyingTo.content.slice(0, 40) + '...'
-                      : replyingTo.content}
-                  </p>
+                <span className="text-xs text-muted-foreground">Respondendo a:</span>
+                <p className="text-sm truncate">
+                  {replyingTo.content?.length > 40
+                  ? replyingTo.content.slice(0, 40) + '...'
+                  : replyingTo.content}
+                </p>
                 </div>
                 <button
-                  onClick={handleCancelReply}
-                  className="ml-2 text-muted-foreground hover:text-foreground transition-colors"
-                  title="Cancelar resposta"
+                onClick={handleCancelReply}
+                className="ml-2 text-muted-foreground hover:text-foreground transition-colors"
+                title="Cancelar resposta"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                <MdClose size={16} />
                 </button>
               </div>
-            )}
-            <Input
+              )}
+              <Input
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
+                e.preventDefault();
+                handleSendMessage();
                 }
               }}
               placeholder="Digite seu pedido"
               disabled={isLoading}
               className="w-full bg-input text-foreground border border-border rounded-lg shadow-sm px-4 py-2"
+              />
+            </div>
+            <FileUploader
+              onFileSelect={setSelectedFile}
+              disabled={isLoading}
+              clearFile={clearFile}
             />
-          </div>
-          <FileUploader
-            onFileSelect={setSelectedFile}
-            disabled={isLoading}
-            clearFile={clearFile}
-          />
-          <AudioRecorder
-            onAudioRecorded={setSelectedAudio}
-            disabled={isLoading}
-          />
-          <Button
-            onClick={handleSendMessage}
-            disabled={isLoading || (!inputMessage.trim() && !selectedFile && !selectedAudio)}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md shadow-sm"
-          >
-            Enviar
-          </Button>
-        </div>
+            <AudioRecorder
+              onAudioRecorded={setSelectedAudio}
+              disabled={isLoading}
+            />
+            <Button
+              onClick={handleSendMessage}
+              disabled={isLoading || (!inputMessage.trim() && !selectedFile && !selectedAudio)}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md shadow-sm flex items-center justify-center"
+            >
+              <span className="block md:hidden">
+              <span className="text-white">
+                <MdSend size={22} />
+              </span>
+              </span>
+              <span className="hidden md:block">
+              Enviar
+              </span>
+            </Button>
+            </div>
         {/* Rodapé institucional removido conforme solicitado */}
       </div>
     </div>

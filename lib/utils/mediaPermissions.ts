@@ -1,4 +1,4 @@
-// Utilitários para permissões de mídia
+  // Utilitários para permissões de mídia
 'use client';
 
 export async function checkMicrophonePermission(): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> {

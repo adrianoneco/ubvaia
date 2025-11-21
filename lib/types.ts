@@ -1,4 +1,4 @@
-// Tipos TypeScript para o chat e integração n8n
+ // Tipos TypeScript para o chat e integração n8n
 
 export type MessageRole = 'user' | 'assistant';
 

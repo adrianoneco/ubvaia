@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Script from "next/script";
+import { FaBroom } from 'react-icons/fa';
 
 export const metadata: Metadata = {
   title: "Carlos IA - Chatbot Inteligente",

@@ -32,6 +32,13 @@ const pool = new Pool({
         );
       `);
 
+    // Ensure new columns exist (safe to run on existing DBs)
+    await pool.query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS nome_completo TEXT,
+      ADD COLUMN IF NOT EXISTS remote_jid TEXT;
+    `);
+
     await pool.query(`
         CREATE TABLE IF NOT EXISTS messages (
           id TEXT PRIMARY KEY,

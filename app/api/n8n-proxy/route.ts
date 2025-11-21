@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { pool } from '../../../lib/session-db';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +16,29 @@ export async function POST(req: NextRequest) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3000); // 3s
+    // Enriquecer body com nome/telefone da sessão quando possível
+    try {
+      const sessionId = body?.session_id || body?.sessionId || body?.sessionId;
+      if (sessionId) {
+        try {
+          const s = await pool.query('SELECT nome_completo, remote_jid FROM sessions WHERE id = $1 LIMIT 1', [sessionId]);
+          if (s && (s.rowCount ?? 0) > 0) {
+            const row = s.rows[0];
+            if (!body.nome_completo && row.nome_completo) body.nome_completo = row.nome_completo;
+            if (!body.remote_jid && row.remote_jid) body.remote_jid = row.remote_jid;
+          }
+        } catch (err) {
+          console.error('Erro ao buscar sessão para enriquecer webhook proxy:', err);
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    // Prepare outgoing body and ensure remoteId/nome fields are present for consumers
+    const remoteId = body.remote_jid || body.whatsappNumber || undefined;
+    const nome = body.nome_completo || body.userName || undefined;
+
     let res;
     try {
       res = await fetch(webhookUrl, {
@@ -22,7 +46,7 @@ export async function POST(req: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, remoteId, nome }),
         signal: controller.signal,
       });
     } catch (err) {

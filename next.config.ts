@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
     'localhost',
   ],
   
+  devIndicators: false,  
+
   // Performance optimizations for faster startup
   experimental: {
     // Optimize package imports

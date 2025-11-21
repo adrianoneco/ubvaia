@@ -1,5 +1,6 @@
 "use client";
 import { useState } from 'react';
+import { FaBroom } from 'react-icons/fa';
 
 const TABS = ['Sessions', 'Default Settings', '+Typebot'] as const;
 

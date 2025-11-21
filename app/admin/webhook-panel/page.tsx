@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
+import { FaBroom } from 'react-icons/fa';
 
 const EVENTS = [
   'APPLICATION_STARTUP',

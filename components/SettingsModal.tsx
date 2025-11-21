@@ -1,7 +1,7 @@
 // Modal de configurações
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useChatStore } from '@/lib/store';
 import {
   Dialog,
@@ -13,48 +13,32 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+// If updateConfigServer exists elsewhere, import it from the correct module:
+// import { updateConfigServer } from '@/lib/config'; // example
 
 export function SettingsModal() {
-  // Velocidade de digitação
-  const [typingSpeed, setTypingSpeed] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('typingSpeed');
-      return saved ? Number(saved) : 30;
-    }
-    return 30;
-  });
+  const config = useChatStore((state) => state.config);
 
-  const handleTypingSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = Number(e.target.value);
-    if (value < 10) value = 10; // Enforce minimum limit
-    if (value > 200) value = 200; // Enforce maximum limit
-    setTypingSpeed(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('typingSpeed', String(value));
-    }
-  };
-  const { config, updateConfigServer, clearMessages } = useChatStore();
   const [open, setOpen] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState(config.webhookUrl);
   const [authToken, setAuthToken] = useState(config.authToken || '');
-  const [chatName, setChatName] = useState(config.chatName);
+  const [chatName, setChatName] = useState(config.chatName || 'Carlos IA');
 
-  const handleSave = () => {
-    // update locally and persist on server
-    updateConfigServer({
-      webhookUrl,
-      authToken: authToken || undefined,
-      chatName,
-    });
+  const handleSave = useCallback(() => {
+    // TODO: Implement config update logic here, or import updateConfigServer from the correct module
+    // Example: updateConfigServer({ webhookUrl, authToken: authToken || undefined, chatName });
     setOpen(false);
-  };
+  }, [setOpen]);
 
-  const handleClearHistory = () => {
-    if (confirm('Deseja realmente limpar todo o histórico de mensagens?')) {
-      clearMessages();
-      setOpen(false);
-    }
-  };
+  // Memoize the onChange handlers for webhookUrl and authToken
+  const handleWebhookUrlChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setWebhookUrl(e.target.value), []);
+  const handleAuthTokenChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setAuthToken(e.target.value), []);
+  // const handleClearHistory = () => {
+  //   if (confirm('Deseja realmente limpar todo o histórico de mensagens?')) {
+  //     clearMessages();
+  //     setOpen(false);
+  //   }
+  // };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -85,24 +69,11 @@ export function SettingsModal() {
         <DialogHeader>
           <DialogTitle className="text-lg font-bold text-primary">Configurações</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Configure a integração com o n8n e personalize seu chat
+            {/*Configure a integração com o n8n e personalize seu chat*/}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
-          {/* Velocidade de digitação */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Velocidade da digitação (ms por caractere)</label>
-            <Input
-              type="number"
-              min={10}
-              max={200}
-              value={typingSpeed}
-              onChange={handleTypingSpeedChange}
-              className="bg-input text-foreground border border-border w-32"
-            />
-            <p className="text-xs text-muted-foreground">Quanto menor o valor, mais rápido a digitação da resposta da assistente.</p>
-          </div>
-          {/* Nome do Chat */}
+          {/* Nome do Chat 
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Nome do Chat</label>
             <Input
@@ -111,7 +82,7 @@ export function SettingsModal() {
               placeholder="Carlos IA"
               className="bg-input text-foreground border border-border"
             />
-          </div>
+          </div> */}
 
           {/* ID da Sessão */}
           <div className="space-y-2">
@@ -122,16 +93,38 @@ export function SettingsModal() {
             </p>
           </div>
 
+          {/* Webhook URL 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Webhook URL</label>
+            <Input
+              value={webhookUrl}
+              onChange={handleWebhookUrlChange}
+              placeholder="Webhook URL"
+              className="bg-input text-foreground border border-border"
+            />
+          </div> */}
+
+          {/* Auth Token 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Auth Token</label>
+            <Input
+              value={authToken}
+              onChange={handleAuthTokenChange}
+              placeholder="Auth Token"
+              className="bg-input text-foreground border border-border"
+            />
+          </div>*/}
+
           {/* Botão limpar histórico removido */}
         </div>
 
         {/* Ações */}
         <div className="flex justify-end space-x-2">
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          {/*<Button variant="outline" onClick={() => setOpen(false)}>
             Cancelar
-          </Button>
+          </Button>*/}
           <Button onClick={handleSave} className="bg-primary text-primary-foreground">
-            Salvar Configurações
+            OK
           </Button>
         </div>
       </DialogContent>

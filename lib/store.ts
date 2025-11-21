@@ -6,7 +6,7 @@ import { ChatState, Message, N8nConfig } from './types';
 
 // Configuração padrão
 const defaultConfig: N8nConfig = {
-  webhookUrl: 'https://n8n.easydev.com.br/webhook-test/ia-agent-ubva',
+  webhookUrl: 'https://n8n.easydev.com.br/webhook/ia-agent-ubva',
   authToken: '',
   chatName: 'Carlos IA',
   sessionId: uuidv4(),
@@ -36,28 +36,33 @@ export const useChatStore = create<ChatState>()(
           // Fire-and-forget persist to server API
           (async () => {
             try {
+              const payload: any = {
+                sessionId: msg.sessionId,
+                role: msg.role,
+                content: msg.content,
+                contentType: msg.contentType || 'text',
+                imageUrl: msg.imageUrl || undefined,
+              };
+
+              // Add user metadata if available
+              const nome_completo = localStorage.getItem('userName');
+              const remote_jid = localStorage.getItem('whatsappNumber');
+              if (nome_completo) payload.nome_completo = nome_completo;
+              if (remote_jid) payload.remote_jid = remote_jid;
+
               await fetch('/api/message', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  sessionId: msg.sessionId,
-                  role: msg.role,
-                  content: msg.content,
-                  contentType: msg.contentType || 'text',
-                  imageUrl: msg.imageUrl || undefined,
-                }),
+                body: JSON.stringify(payload),
               });
             } catch (e) {
-              // swallow network errors (still persisted in localStorage)
               console.error('Failed to persist message to server:', e);
             }
           })();
 
+          // Return immediately to update UI faster
           return {
-            messages: [
-              ...state.messages,
-              msg,
-            ],
+            messages: [...state.messages, msg],
           };
         }),
 
