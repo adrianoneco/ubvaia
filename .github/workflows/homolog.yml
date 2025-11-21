@@ -29,6 +29,9 @@ jobs:
             echo "Instalando dependências..."
             npm install --production
 
+            echo "Corrigindo vunerabilidades de pacotes..."
+            npm audit fix --force && npm audit fix --force
+
             echo "Validando Código"
             npm run check
 
