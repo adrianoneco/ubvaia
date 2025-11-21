@@ -17,7 +17,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y sshpass
 
       - name: Checkout rep
-        run: git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia && git checkout homolog && npm install && npm run check && npm audit fix --force && rm -rf /tmp/ubvaia
+        run: npm install -g typescript && git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia && git checkout homolog && npm install && tsc --noEmit && npm audit fix --force && rm -rf /tmp/ubvaia
 
       - name: Deploy via SSH (user + password)
         run: |
@@ -33,7 +33,10 @@ jobs:
             npm install --production
 
             echo "Corrigindo vunerabilidades de pacotes..."
-            npm audit fix --force && npm audit fix --force
+            pm install -g typescript
+            git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia
+            git checkout homolog && npm install
+            tsc --noEmit && npm audit fix --force
 
             echo "Validando Código"
             npm run check
