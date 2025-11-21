@@ -21,13 +21,16 @@ jobs:
           sshpass -p "${{ secrets.HOMOLOG_SSH_PASSWORD }}" ssh -o StrictHostKeyChecking=no ${{
             secrets.HOMOLOG_SSH_USER }}@${{ secrets.HOMOLOG_SSH_HOST }} << 'EOF'
 
-            cd /srv/sites/ubvaia
+            cd /srv/sites/ubvaia-homolog
 
             echo "Pull do repositório..."
             git pull
 
             echo "Instalando dependências..."
             npm install --production
+
+            echo "Validando Código"
+            npm run check
 
             echo "Buildando..."
             npm run build
