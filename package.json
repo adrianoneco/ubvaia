@@ -8,7 +8,7 @@
     "dev:old": "next dev -p 3000 -H 0.0.0.0",
     "ws": "ts-node --project tsconfig.server.json server-websocket.ts",
     "build": "next build",
-    "start": "node server-custom.js",
+    "start": "ts-node --project tsconfig.server.json server-custom.ts",
     "start:old": "next start",
     "lint": "eslint",
     "prestart": "npx kill-port 3000 || true"

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getMessagesBySession } from '../../../../../lib/session-api';
 
-export async function GET(req: Request, { params }: { params?: { id?: string } } = {}) {
+export async function GET(req: Request, context: any = {}) {
+  const params = (context?.params instanceof Promise) ? await context.params : context?.params;
   try {
     // Try params first (framework-provided). If missing, parse from URL as fallback.
     let sessionId = params?.id;
