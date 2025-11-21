@@ -10,30 +10,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout do código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH (user + password)
+      - name: Deploy to Server via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
-          # Se usar outra porta, adicione:
-          # port: ${{ secrets.SSH_PORT }}
+          port: ${{ secrets.SSH_PORT }}   # Se não existir, remova
           script: |
             cd /srv/sites/ubvaia
 
-            echo "Atualizando o código..."
+            echo "Pull do repositório..."
             git pull
 
             echo "Instalando dependências..."
             npm install --production
 
-            echo "Buildando o projeto..."
+            echo "Buildando..."
             npm run build
 
             echo "Reiniciando PM2..."
             pm2 restart ubva-ia || pm2 start dist/index.js --name ubva-ia
-
-            echo "🚀 Deploy finalizado!"
+           echo "🚀 Deploy finalizado!"
