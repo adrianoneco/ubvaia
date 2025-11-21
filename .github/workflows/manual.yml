@@ -1,4 +1,4 @@
-name: Deploy to Production on OCH-VPS13670
+name: Deploy UBVA IA
 
 on:
   push:
@@ -13,14 +13,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy to Server via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          # port: ${{ secrets.SSH_PORT }}   # Se não existir, remova ou descomente e defina o secret
-          script: |
+      - name: Instalar sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy via SSH (user + password)
+        run: |
+          sshpass -p "${{ secrets.SSH_PASSWORD }}" ssh -o StrictHostKeyChecking=no ${{
+            secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+
             cd /srv/sites/ubvaia
 
             echo "Pull do repositório..."
@@ -36,3 +36,4 @@ jobs:
             pm2 restart ubva-ia || pm2 start dist/index.js --name ubva-ia
 
             echo "🚀 Deploy finalizado!"
+          EOF
