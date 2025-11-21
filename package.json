@@ -1,13 +1,12 @@
 {
-  "name": "frontend",
+  "name": "ubva-ia",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "node dev-fast.js",
-    "dev:slow": "ts-node --project tsconfig.server.json server-custom.ts",
-    "dev:old": "next dev -p 3000 -H 0.0.0.0",
     "ws": "ts-node --project tsconfig.server.json server-websocket.ts",
     "build": "next build",
+    "check": "npx tsc --noEmit && npx eslint . --ext .ts,.tsx,.js,.jsx",
     "start": "ts-node --project tsconfig.server.json server-custom.ts",
     "start:old": "next start",
     "lint": "eslint",
