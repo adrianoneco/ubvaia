@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
     // Optimize package imports
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
+  // Provide an explicit (possibly empty) turbopack config so Next.js
+  // doesn't error when a custom webpack config is present.
+  turbopack: {},
   
   // Faster refresh in development
   reactStrictMode: true,

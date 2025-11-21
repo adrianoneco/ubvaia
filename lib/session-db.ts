@@ -2,6 +2,7 @@
 // For Postgres support add `pg` to dependencies (already added to package.json).
 
 import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
 
 let dbExport: { type: 'pg'; pool: Pool };
 
@@ -72,5 +73,9 @@ dbExport = {
   type: 'pg' as const,
   pool,
 };
+
+// Expose a Drizzle `db` instance using the same pool so application code
+// can migrate gradually from raw SQL to Drizzle ORM.
+export const db = drizzle(pool);
 
 export { dbExport, pool };

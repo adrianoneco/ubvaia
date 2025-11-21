@@ -1,24 +1,6 @@
-  import { dbExport, pool } from './session-db';
-// Retorna todas as sessões já com as últimas N mensagens (default: 20)
-export async function getAllSessionsWithMessages(limit: number = 20): Promise<any[]> {
-  const sessionsRes = await pool.query(`SELECT * FROM sessions ORDER BY created_at DESC`);
-  const sessions = sessionsRes.rows;
-  const result = await Promise.all(sessions.map(async (session: any) => {
-    const messagesRes = await pool.query(
-      `SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2`,
-      [session.id, limit]
-    );
-    const messages = messagesRes.rows
-      .map((m: any) => ({
-        ...m,
-        imageUrl: m.image_url || undefined,
-      }))
-      .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    return { ...session, messages };
-  }));
-  return result;
-}
-// Session API: supports only PostgreSQL
+import { dbExport, pool, db } from './session-db';
+import { sessions, messages, settings } from './schema';
+import { eq, asc, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
 export type MessageRecord = {
@@ -38,78 +20,104 @@ export type SessionRecord = {
   remote_jid?: string | null;
 };
 
+// Retorna todas as sessões já com as últimas N mensagens (default: 20)
+export async function getAllSessionsWithMessages(limit: number = 20): Promise<any[]> {
+  const sess = await db.select().from(sessions).orderBy(desc(sessions.created_at));
+  const result = await Promise.all(sess.map(async (s: any) => {
+    const msgs = await db.select().from(messages)
+      .where(eq(messages.session_id, s.id))
+      .orderBy(desc(messages.created_at))
+      .limit(limit);
+
+    // Convert field names to previous shape
+    const mapped = msgs.map((m: any) => ({
+      ...m,
+      imageUrl: m.image_url || undefined,
+    })).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    return { ...s, messages: mapped };
+  }));
+  return result;
+}
+
 export async function saveMessage({ sessionId, role, content, contentType, imageUrl, nome_completo, remote_jid }: MessageRecord): Promise<void> {
   const id = uuidv4();
-  // Ensure session exists to satisfy foreign key constraint
   try {
-    await dbExport.pool.query(`INSERT INTO sessions (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [sessionId, `Sessão ${sessionId}`]);
-    await dbExport.pool.query(
-      `INSERT INTO messages (id, session_id, role, content, content_type, image_url) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, sessionId, role, content, contentType, imageUrl || null]
-    );
-    // Se nome_completo ou remote_jid forem informados, atualizar a sessão correspondente
+    // Ensure session exists
+    const existing = await db.select().from(sessions).where(eq(sessions.id, sessionId));
+    if (existing.length === 0) {
+      await db.insert(sessions).values({ id: sessionId, name: `Sessão ${sessionId}` });
+    }
+
+    await db.insert(messages).values({
+      id,
+      session_id: sessionId,
+      role,
+      content,
+      content_type: contentType,
+      image_url: imageUrl || null,
+    });
+
     if (nome_completo || remote_jid) {
       try {
-        await dbExport.pool.query(
-          `UPDATE sessions SET
-             nome_completo = COALESCE($2, nome_completo),
-             remote_jid = COALESCE($3, remote_jid)
-           WHERE id = $1`,
-          [sessionId, nome_completo || null, remote_jid || null]
-        );
+        await db.update(sessions).set({
+          nome_completo: nome_completo || null,
+          remote_jid: remote_jid || null,
+        }).where(eq(sessions.id, sessionId));
       } catch (err) {
         console.error('Error updating session with nome_completo/remote_jid:', err);
-        // Não lançar para não interromper o flow de salvar mensagem
       }
     }
   } catch (err) {
-    // Re-throw so route handlers can log properly
-    console.error('Error saving message to Postgres:', err);
+    console.error('Error saving message via Drizzle:', err);
     throw err;
   }
 }
 
 export async function saveSession({ id, name, nome_completo, remote_jid }: SessionRecord): Promise<void> {
-  // Inserir ou atualizar sessão com nome completo e remote_jid quando fornecidos
   try {
-    await dbExport.pool.query(
-      `INSERT INTO sessions (id, name, nome_completo, remote_jid) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (id) DO UPDATE SET
-         name = COALESCE(EXCLUDED.name, sessions.name),
-         nome_completo = COALESCE(EXCLUDED.nome_completo, sessions.nome_completo),
-         remote_jid = COALESCE(EXCLUDED.remote_jid, sessions.remote_jid)
-      `,
-      [id, name || null, nome_completo || null, remote_jid || null]
-    );
+    const existing = await db.select().from(sessions).where(eq(sessions.id, id));
+    if (existing.length === 0) {
+      await db.insert(sessions).values({ id, name: name || null, nome_completo: nome_completo || null, remote_jid: remote_jid || null });
+    } else {
+      await db.update(sessions).set({
+        name: name || existing[0].name,
+        nome_completo: nome_completo || existing[0].nome_completo,
+        remote_jid: remote_jid || existing[0].remote_jid,
+      }).where(eq(sessions.id, id));
+    }
   } catch (err) {
-    console.error('Error saving session to Postgres:', err);
+    console.error('Error saving session via Drizzle:', err);
     throw err;
   }
 }
 
 export async function getMessagesBySession(sessionId: string): Promise<any[]> {
-  const res = await dbExport.pool.query(`SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at ASC`, [sessionId]);
-  return res.rows.map((m: any) => ({
-    ...m,
-    imageUrl: m.image_url || undefined,
-  }));
+  const res = await db.select().from(messages).where(eq(messages.session_id, sessionId)).orderBy(asc(messages.created_at));
+  return res.map((m: any) => ({ ...m, imageUrl: m.image_url || undefined }));
 }
 
 export async function getAllSessions(): Promise<any[]> {
-  const res = await dbExport.pool.query(`SELECT * FROM sessions ORDER BY created_at DESC`);
-  return res.rows;
+  return await db.select().from(sessions).orderBy(desc(sessions.created_at));
 }
 
 // Config persistence (store settings like webhookUrl, authToken, chatName)
 export async function saveConfig(key: string, value: any): Promise<void> {
-  await dbExport.pool.query(
-    `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
-    [key, value]
-  );
+  try {
+    const existing = await db.select().from(settings).where(eq(settings.key, key));
+    if (existing.length === 0) {
+      await db.insert(settings).values({ key, value });
+    } else {
+      await db.update(settings).set({ value }).where(eq(settings.key, key));
+    }
+  } catch (err) {
+    console.error('Error saving config via Drizzle:', err);
+    throw err;
+  }
 }
 
 export async function getConfig(key: string): Promise<any | null> {
-  const res = await dbExport.pool.query(`SELECT value FROM settings WHERE key = $1 LIMIT 1`, [key]);
-  if (res.rowCount === 0) return null;
-  return res.rows[0].value;
+  const res = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
+  if (res.length === 0) return null;
+  return res[0].value;
 }
