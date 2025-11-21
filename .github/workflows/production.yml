@@ -29,7 +29,7 @@ jobs:
             echo "Instalando dependências..."
             npm install --production
             echo "Corrigindo vunerabilidades de pacotes..."
-            pm install -g typescript
+            npm install -g typescript
             git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia
             git checkout main && npm install
             tsc --noEmit && npm audit fix --force
