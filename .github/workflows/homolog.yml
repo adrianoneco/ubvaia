@@ -24,7 +24,7 @@ jobs:
             cd /srv/sites/ubvaia-homolog
 
             echo "Pull do repositório..."
-            git pull
+            git checkout homolog && git pull origin homolog
 
             echo "Instalando dependências..."
             npm install --production
