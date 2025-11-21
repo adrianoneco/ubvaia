@@ -34,7 +34,6 @@ jobs:
 
             echo "Corrigindo vunerabilidades de pacotes..."
             pm install -g typescript
-            git clone https://github.com/adrianoneco/ubvaia.git /tmp/ubvaia
             git checkout homolog && npm install
             tsc --noEmit && npm audit fix --force
 
@@ -45,6 +44,7 @@ jobs:
             npm run build
 
             echo "Reiniciando PM2..."
+            chmod -R 777 /srv/sites/ubvaia-homolog
             pm2 restart ubvaia-homolog || pm2 start dist/index.js --name ubva-ia
 
             echo "🚀 Deploy finalizado!"
